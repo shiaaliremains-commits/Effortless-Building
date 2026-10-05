@@ -28,6 +28,7 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
     private val runs = ArrayList<Run>()
 
     private lateinit var mirrorBtn: Button
+    private lateinit var autoDirBtn: Button
     private var cx = 0
     private var cy = 0
     private var rIn = 0
@@ -50,6 +51,14 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
         } else {
             Component.literal("Mirror: ${m.label}").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
         }
+    }
+
+    private fun autoDirLabel(): Component {
+        val on = EasybuildingClient.autoDirection
+        return Component.literal("Auto Dir: ").append(
+            if (on) Component.literal("ON").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+            else Component.literal("OFF").withStyle(ChatFormatting.RED, ChatFormatting.BOLD)
+        )
     }
 
     private fun say(text: String) {
@@ -138,6 +147,13 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
         rOut = minOf(92, height / 2 - 40, width / 3).coerceAtLeast(48)
         rIn = (rOut * 0.38).toInt()
         buildRuns()
+
+        autoDirBtn = Button.builder(autoDirLabel()) { _ ->
+            EasybuildingClient.autoDirection = !EasybuildingClient.autoDirection
+            autoDirBtn.message = autoDirLabel()
+            say("Auto Direction: ${if (EasybuildingClient.autoDirection) "ON" else "OFF"}")
+        }.bounds(cx - 65, 8, 130, 20).build()
+        addRenderableWidget(autoDirBtn)
 
         val mw = minOf(100, width / 3 - 6)
         mirrorBtn = Button.builder(mirrorLabel()) { _ -> cycleMirror() }

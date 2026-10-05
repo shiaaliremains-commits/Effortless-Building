@@ -25,6 +25,7 @@ object BuildManager {
         val count: Int
     )
 
+    // يحفظ فقط آخر بناء لكل لاعب
     private val lastBuilds = HashMap<UUID, LastBuild>()
 
     fun init() {
@@ -95,6 +96,7 @@ object BuildManager {
             val mirrored = Mirror.apply(positions, mirror, p.center)
             positions = if (mirrored.size > ShapeGen.MAX_BLOCKS * 4) null else mirrored
         }
+        // حذف المواقع المكررة (تظهر مع الـ Mirror) حتى ما تنحسب كمتخطاة
         positions = positions?.distinct()
 
         if (p.action == BuildPayload.PREVIEW) preview(player, mode, item, positions) else build(player, item, positions, p.b)
@@ -106,6 +108,7 @@ object BuildManager {
             return
         }
         val level = player.level() as ServerLevel
+        // نحسب فقط الأماكن اللي فعلاً راح ينبني عليها
         val need = positions.count { canPlaceAt(level, it) }
         if (need == 0) {
             hud(player, "${mode.label}: nothing to build here", ChatFormatting.RED)
@@ -179,6 +182,7 @@ object BuildManager {
             }
         }
 
+        // إرجاع البلوكات إلى حقيبة اللاعب في طور Survival
         if (!player.isCreative && last.count > 0) {
             var remaining = last.count
             val maxStack = last.item.defaultMaxStackSize
@@ -186,6 +190,7 @@ object BuildManager {
                 val take = minOf(remaining, maxStack)
                 val stack = ItemStack(last.item, take)
                 if (!player.inventory.add(stack)) {
+                    // إذا الحقيبة ممتلئة تماماً، نرمي البلوكات عند أقدام اللاعب
                     val dropEntity = ItemEntity(level, player.x, player.y, player.z, stack)
                     level.addFreshEntity(dropEntity)
                 }
