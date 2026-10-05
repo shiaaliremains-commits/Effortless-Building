@@ -3,7 +3,6 @@ package my.easybuilding.client
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -27,18 +26,25 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * RADIAL MENU SETTINGS
+     * RADIAL MENU
      * ============================================================
+     *
+     * الحجم يعتمد على حجم شاشة الـ GUI حتى لا يختلف
+     * مكان الـ click عن مكان الرسم.
      */
 
-    private val innerR = 34.0
-    private val outerR = 88.0
+    private val outerR: Double
+        get() = min(width, height) * 0.37
 
-    // المسافة الصغيرة بين القطاعات
-    private val sliceGap = 0.035
+    private val innerR: Double
+        get() = outerR * 0.31
 
-    // مقدار تكبير القطاع عند Hover
-    private val hoverExpand = 4.0
+    private val centerR: Double
+        get() = outerR * 0.30
+
+    private val sliceGap = 0.045
+
+    private val hoverExpand = outerR * 0.025
 
 
     override fun isPauseScreen(): Boolean = false
@@ -46,14 +52,21 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * SLICE DETECTION
+     * GET SLICE
      * ============================================================
      *
-     * نفس هندسة العجلة المستخدمة بالرسم.
-     * القطاع رقم 0 يبدأ من الأعلى.
+     * مهم جداً:
+     *
+     * ما نعتمد على outerR حتى لا يصير اختلاف بين
+     * حجم الرسم وحجم الـ mouse coordinates.
+     *
+     * نستخدم الزاوية فقط بعد التأكد أن الماوس خارج المركز.
      */
 
-    private fun getSliceAt(mouseX: Double, mouseY: Double): Int {
+    private fun getSliceAt(
+        mouseX: Double,
+        mouseY: Double
+    ): Int {
 
         val cx = width / 2.0
         val cy = height / 2.0
@@ -61,35 +74,43 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         val dx = mouseX - cx
         val dy = mouseY - cy
 
-        val distance = sqrt(dx * dx + dy * dy)
+        val distance = sqrt(
+            dx * dx + dy * dy
+        )
 
         /*
-         * السماح بقليل من المساحة الإضافية حتى يكون الضغط مريح.
+         * داخل زر الوسط = لا يوجد sector.
          */
-        if (distance < innerR - 3.0 || distance > outerR + hoverExpand + 3.0) {
+
+        if (distance < innerR * 0.85) {
             return -1
         }
 
         val total = BuildMode.entries.size
 
-        if (total <= 0) {
+        if (total == 0) {
             return -1
         }
 
-        val angleStep = (Math.PI * 2.0) / total
+        val angleStep =
+            (Math.PI * 2.0) / total
 
         /*
-         * atan2:
-         *
-         *        -PI/2
-         *           ↑
-         *
-         * نريد هذا المكان يكون القطاع 0.
+         * زاوية الماوس.
          */
 
-        var angle = atan2(dy, dx)
+        var angle =
+            atan2(dy, dx)
 
-        angle -= -Math.PI / 2.0
+        /*
+         * نخلي الساعة 12 = صفر.
+         */
+
+        angle += Math.PI / 2.0
+
+        /*
+         * تطبيع الزاوية إلى 0..2PI
+         */
 
         while (angle < 0.0) {
             angle += Math.PI * 2.0
@@ -100,19 +121,22 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         }
 
         /*
-         * تدوير التقسيم نصف قطاع حتى يكون
-         * القطاع الأول متمركز تماماً في الأعلى.
+         * كل sector يتمركز حول زاويته.
          */
-        val index =
-            floor((angle + angleStep / 2.0) / angleStep).toInt()
 
-        return index.coerceIn(0, total - 1)
+        return floor(
+            (angle + angleStep / 2.0) /
+                    angleStep
+        ).toInt().coerceIn(
+            0,
+            total - 1
+        )
     }
 
 
     /*
      * ============================================================
-     * MAIN RENDER
+     * RENDER
      * ============================================================
      */
 
@@ -152,13 +176,14 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
         /*
          * ========================================================
-         * DRAW RADIAL SLICES
+         * SECTORS
          * ========================================================
          */
 
         for (i in 0 until total) {
 
-            val mode = modes[i]
+            val mode =
+                modes[i]
 
             val isCurrent =
                 BuildState.mode == mode
@@ -168,16 +193,16 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
             /*
-             * الألوان
+             * اللون
              */
 
             val color = when {
 
                 isHovered ->
-                    0xF55DBBFF.toInt()
+                    0xF557B9F4.toInt()
 
                 isCurrent ->
-                    0xEE147FC4.toInt()
+                    0xEE0C78BD.toInt()
 
                 else ->
                     0xE13A3630.toInt()
@@ -185,17 +210,13 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
             /*
-             * منتصف القطاع
+             * زاوية القطاع
              */
 
             val aMid =
                 -Math.PI / 2.0 +
-                        (i * angleStep)
+                        i * angleStep
 
-
-            /*
-             * حدود القطاع
-             */
 
             val a1 =
                 aMid -
@@ -209,10 +230,10 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
             /*
-             * Hover يجعل القطاع يبرز قليلاً.
+             * القطاع المحدد يطلع للخارج قليلاً.
              */
 
-            val currentOuterR =
+            val currentOuter =
                 if (isHovered) {
                     outerR + hoverExpand
                 } else {
@@ -220,16 +241,12 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
                 }
 
 
-            /*
-             * رسم القطاع
-             */
-
             drawSolidSector(
                 graphics,
                 cx,
                 cy,
                 innerR,
-                currentOuterR,
+                currentOuter,
                 a1,
                 a2,
                 color
@@ -242,14 +259,22 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
              * ====================================================
              */
 
-            val midR =
-                (innerR + currentOuterR) / 2.0
+            val iconRadius =
+                (innerR + currentOuter) / 2.0
 
             val iconX =
-                (cx + cos(aMid) * midR).toInt()
+                (
+                    cx +
+                            cos(aMid) *
+                            iconRadius
+                    ).toInt()
 
             val iconY =
-                (cy + sin(aMid) * midR).toInt()
+                (
+                    cy +
+                            sin(aMid) *
+                            iconRadius
+                    ).toInt()
 
 
             drawModeIcon(
@@ -276,27 +301,24 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
         /*
          * ========================================================
-         * HOVER LABEL
+         * LABEL
          * ========================================================
          */
 
         if (hovered in modes.indices) {
 
-            val label =
-                modes[hovered].label
-
             drawHoverLabel(
                 graphics,
                 cx,
                 cy,
-                label
+                modes[hovered].label
             )
         }
 
 
         /*
          * ========================================================
-         * BOTTOM CONTROLS
+         * BOTTOM BUTTONS
          * ========================================================
          */
 
@@ -310,15 +332,12 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * RADIAL SECTOR
+     * SECTOR DRAWING
      * ============================================================
      *
-     * Scanline محسّن:
+     * Scanline بدقة عالية.
      *
-     * - بدون step 2 القديم
-     * - بدون فراغات بين الخطوط
-     * - حساب حدود القطاع بشكل مباشر
-     * - الحواف أنظف بكثير
+     * الخطوة 0.35 بدلاً من 1.5 حتى تختفي الفراغات.
      */
 
     private fun drawSolidSector(
@@ -336,16 +355,13 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             floor(cy - rOut).toInt()
 
         val maxY =
-            ceil(cy + rOut).toInt()
+            floor(cy + rOut).toInt()
 
 
         for (y in minY..maxY) {
 
-            /*
-             * نستخدم منتصف البكسل.
-             */
             val py =
-                (y + 0.5) - cy
+                y + 0.5 - cy
 
             val py2 =
                 py * py
@@ -356,10 +372,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             }
 
 
-            /*
-             * حدود الدائرة الخارجية.
-             */
-
             val outerX =
                 sqrt(
                     max(
@@ -368,14 +380,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
                     )
                 )
 
-
-            /*
-             * نجرب نقاط X كثيرة بدقة أعلى.
-             *
-             * هذا أفضل بكثير من x += 1.5 القديم.
-             */
-
-            val sampleStep = 0.5
 
             var left =
                 Double.POSITIVE_INFINITY
@@ -387,20 +391,19 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             var x =
                 -outerX
 
+            val step =
+                0.35
+
 
             while (x <= outerX) {
 
-                val dist2 =
+                val distance2 =
                     x * x + py2
 
 
-                /*
-                 * داخل الحلقة؟
-                 */
-
                 if (
-                    dist2 >= (rIn * rIn) &&
-                    dist2 <= (rOut * rOut)
+                    distance2 >= rIn * rIn &&
+                    distance2 <= rOut * rOut
                 ) {
 
                     var angle =
@@ -408,24 +411,22 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
                     /*
-                     * تحويل الزاوية إلى نفس نظام
-                     * getSliceAt().
+                     * نخلي الزاوية بنفس مجال القطاع.
                      */
 
                     while (angle < a1) {
                         angle += Math.PI * 2.0
                     }
 
-                    while (angle >= a1 + Math.PI * 2.0) {
+                    while (angle > a2) {
                         angle -= Math.PI * 2.0
                     }
 
 
-                    /*
-                     * داخل القطاع.
-                     */
-
-                    if (angle <= a2) {
+                    if (
+                        angle >= a1 &&
+                        angle <= a2
+                    ) {
 
                         left =
                             min(
@@ -442,13 +443,9 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
                 }
 
 
-                x += sampleStep
+                x += step
             }
 
-
-            /*
-             * رسم الخط إذا وجد.
-             */
 
             if (
                 left.isFinite() &&
@@ -457,10 +454,18 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             ) {
 
                 graphics.fill(
-                    floor(cx + left).toInt(),
+                    floor(
+                        cx + left
+                    ).toInt(),
+
                     y,
-                    ceil(cx + right + 1.0).toInt(),
+
+                    floor(
+                        cx + right + 1.0
+                    ).toInt(),
+
                     y + 1,
+
                     color
                 )
             }
@@ -480,54 +485,88 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         cy: Int
     ) {
 
+        val r =
+            centerR.toInt()
+
+
         /*
-         * دائرة/منطقة الوسط.
+         * ظل خارجي
+         */
+
+        graphics.fill(
+            cx - r - 5,
+            cy - r - 5,
+            cx + r + 5,
+            cy + r + 5,
+            0x55101010
+        )
+
+
+        /*
+         * الطبقة الخارجية
+         */
+
+        graphics.fill(
+            cx - r,
+            cy - r,
+            cx + r,
+            cy + r,
+            0xAA171914.toInt()
+        )
+
+
+        /*
+         * الطبقة الداخلية
+         */
+
+        val inner =
+            max(
+                8,
+                r - 7
+            )
+
+        graphics.fill(
+            cx - inner,
+            cy - inner,
+            cx + inner,
+            cy + inner,
+            0xD8202819.toInt()
+        )
+
+
+        /*
+         * علامة +
          *
-         * نستخدم عدة طبقات حتى تظهر أنعم.
+         * أصغر ومتناسقة مع المركز.
          */
 
-        graphics.fill(
-            cx - 30,
-            cy - 30,
-            cx + 30,
-            cy + 30,
-            0x50101010
-        )
+        val plus =
+            max(
+                5,
+                (r * 0.28).toInt()
+            )
 
-        graphics.fill(
-            cx - 27,
-            cy - 27,
-            cx + 27,
-            cy + 27,
-            0xAA182015.toInt()
-        )
+        val plusThickness =
+            max(
+                2,
+                (r * 0.10).toInt()
+            )
+
 
         graphics.fill(
-            cx - 24,
-            cy - 24,
-            cx + 24,
-            cy + 24,
-            0xCC20291B.toInt()
-        )
-
-
-        /*
-         * +
-         */
-
-        graphics.fill(
-            cx - 2,
-            cy - 13,
-            cx + 3,
-            cy + 14,
+            cx - plusThickness,
+            cy - plus,
+            cx + plusThickness + 1,
+            cy + plus + 1,
             0xFFFFFFFF.toInt()
         )
 
+
         graphics.fill(
-            cx - 13,
-            cy - 2,
-            cx + 14,
-            cy + 3,
+            cx - plus,
+            cy - plusThickness,
+            cx + plus + 1,
+            cy + plusThickness + 1,
             0xFFFFFFFF.toInt()
         )
     }
@@ -549,23 +588,34 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         val textWidth =
             font.width(label)
 
+
+        /*
+         * مكان النص بالنسبة للعجلة.
+         */
+
         val x =
-            (cx + outerR + 16).toInt()
+            (
+                cx +
+                        outerR +
+                        18
+                ).toInt()
 
         val y =
-            (cy - 6).toInt()
+            (
+                cy - 6
+                ).toInt()
 
 
         /*
-         * خلفية صغيرة للنص.
+         * الخلفية
          */
 
         graphics.fill(
-            x - 7,
-            y - 5,
-            x + textWidth + 7,
+            x - 8,
+            y - 6,
+            x + textWidth + 8,
             y + 12,
-            0xA820201E.toInt()
+            0xB820201D.toInt()
         )
 
 
@@ -581,7 +631,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * MODE ICONS
+     * ICONS
      * ============================================================
      */
 
@@ -730,7 +780,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
             /*
-             * أي mode إضافي
+             * أي Mode إضافي
              */
 
             else -> {
@@ -750,7 +800,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * CUBE ICON
+     * CUBE
      * ============================================================
      */
 
@@ -763,10 +813,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         right: Int
     ) {
 
-        /*
-         * Top
-         */
-
         graphics.fill(
             x - 4,
             y - 5,
@@ -775,11 +821,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             top
         )
 
-
-        /*
-         * Left
-         */
-
         graphics.fill(
             x - 4,
             y - 2,
@@ -787,11 +828,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             y + 5,
             left
         )
-
-
-        /*
-         * Right
-         */
 
         graphics.fill(
             x,
@@ -823,7 +859,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
         /*
-         * Mirror background
+         * Mirror
          */
 
         graphics.fill(
@@ -833,7 +869,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             y + 18,
             0xAA22201C.toInt()
         )
-
 
         graphics.centeredText(
             font,
@@ -845,7 +880,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
         /*
-         * Undo background
+         * Undo
          */
 
         graphics.fill(
@@ -855,7 +890,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
             y + 18,
             0xAA22201C.toInt()
         )
-
 
         graphics.centeredText(
             font,
@@ -869,7 +903,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
     /*
      * ============================================================
-     * MOUSE CLICK
+     * MOUSE
      * ============================================================
      */
 
@@ -897,7 +931,54 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         if (event.button() == 0) {
 
             /*
-             * أولاً نفحص الـ radial menu.
+             * أولاً نتحقق من أزرار الأسفل.
+             *
+             * هذا يمنع الـ radial selection من أكل
+             * ضغطات Mirror / Undo.
+             */
+
+            if (
+                my >= height - 26 &&
+                my <= height - 8
+            ) {
+
+                /*
+                 * UNDO
+                 */
+
+                if (
+                    mx >= cx + 10 &&
+                    mx <= cx + 140
+                ) {
+
+                    EasybuildingClient.sendUndo()
+
+                    onClose()
+
+                    return true
+                }
+
+
+                /*
+                 * MIRROR
+                 */
+
+                if (
+                    mx >= cx - 140 &&
+                    mx <= cx - 10
+                ) {
+
+                    cycleMirror()
+
+                    return true
+                }
+            }
+
+
+            /*
+             * ====================================================
+             * RADIAL SELECTION
+             * ====================================================
              */
 
             val clickedSlice =
@@ -917,7 +998,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
                 /*
-                 * تغيير الـ mode
+                 * تغيير الـ Mode
                  */
 
                 BuildState.mode =
@@ -925,7 +1006,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
                 /*
-                 * صوت الضغط
+                 * صوت
                  */
 
                 Minecraft
@@ -944,7 +1025,9 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
                 val msg =
                     Component
-                        .literal("[Easy Building] ")
+                        .literal(
+                            "[Easy Building] "
+                        )
                         .withStyle(
                             ChatFormatting.AQUA,
                             ChatFormatting.BOLD
@@ -963,7 +1046,9 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
                 Minecraft
                     .getInstance()
                     .player
-                    ?.sendSystemMessage(msg)
+                    ?.sendSystemMessage(
+                        msg
+                    )
 
 
                 /*
@@ -973,50 +1058,6 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
                 onClose()
 
                 return true
-            }
-
-
-            /*
-             * ====================================================
-             * BOTTOM BUTTONS
-             * ====================================================
-             */
-
-            if (
-                my >= height - 26 &&
-                my <= height - 8
-            ) {
-
-                /*
-                 * Undo
-                 */
-
-                if (
-                    mx >= cx + 10 &&
-                    mx <= cx + 140
-                ) {
-
-                    EasybuildingClient.sendUndo()
-
-                    onClose()
-
-                    return true
-                }
-
-
-                /*
-                 * Mirror
-                 */
-
-                if (
-                    mx >= cx - 140 &&
-                    mx <= cx - 10
-                ) {
-
-                    cycleMirror()
-
-                    return true
-                }
             }
         }
 
@@ -1042,8 +1083,9 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
         BuildState.mirror =
             all[
-                (BuildState.mirror.ordinal + 1)
-                        % all.size
+                (
+                    BuildState.mirror.ordinal + 1
+                ) % all.size
             ]
 
 
@@ -1080,8 +1122,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
         /*
-         * ESC
-         * B
+         * ESC / B
          */
 
         if (
@@ -1096,7 +1137,7 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
 
 
         /*
-         * M = Mirror
+         * M
          */
 
         if (key == 77) {
@@ -1107,6 +1148,8 @@ class ModeMenuScreen : Screen(Component.literal("Build Modes")) {
         }
 
 
-        return super.keyPressed(event)
+        return super.keyPressed(
+            event
+        )
     }
 }
