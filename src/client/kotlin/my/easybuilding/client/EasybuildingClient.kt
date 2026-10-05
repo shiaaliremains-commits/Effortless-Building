@@ -1,7 +1,6 @@
 package my.easybuilding.client
 
 import com.mojang.blaze3d.platform.InputConstants
-import kotlin.math.abs
 import kotlin.math.sin
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildPayload
@@ -50,7 +49,7 @@ object EasybuildingClient : ClientModInitializer {
             KeyMapping("key.easybuilding.menu", InputConstants.KEY_B, category)
         )
 
-        // 1. عند النقر على بلوكة صلبة (تحديد النقطة الأولى أو التوصيل ببلوكة ثانية) ومنع وضع بلوكة ماين كرافت العادية
+        // 1. عند النقر على بلوكة صلبة (تحديد النقطة الأولى أو التوصيل ببلوكة ثانية)
         UseBlockCallback.EVENT.register { player, level, hand, hit ->
             val mode = BuildState.mode
             if (mode == BuildMode.NORMAL || hand != InteractionHand.MAIN_HAND || player.mainHandItem.item !is BlockItem) {
@@ -63,14 +62,13 @@ object EasybuildingClient : ClientModInitializer {
             InteractionResult.SUCCESS
         }
 
-        // 2. عند النقر بالهواء للنقطة الثانية (لبناء المربع أو الجدار أو الخط بالجو)
+        // 2. عند النقر بالهواء للنقطة الثانية (يمين، يسار، فوق، تحت)
         ClientTickEvents.START_CLIENT_TICK.register { client ->
             val player = client.player ?: return@register
             val mode = BuildState.mode
             if (!isScreenOpen(client) && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
                 while (client.options.keyUse.consumeClick()) {
                     val hit = client.hitResult
-                    // لا يقبل النقر بالهواء إلا إذا كانت النقطة الأولى محددة مسبقاً على بلوكة
                     if (firstPoint != null && (hit == null || hit.type != HitResult.Type.BLOCK)) {
                         handleInteraction(player, client, null)
                     }
@@ -107,37 +105,29 @@ object EasybuildingClient : ClientModInitializer {
 
         val first = firstPoint
         if (first == null) {
-            // النقطة الأولى: إجباري على بلوكة صلبة فقط
+            // النقطة الأولى: حصراً على بلوكة صلبة
             if (hit != null && hit.type == HitResult.Type.BLOCK) {
                 firstPoint = hit.blockPos.relative(hit.direction)
-                val tip = if (mode == BuildMode.WALL) "First point set. Look up/down to set the height, then right-click"
-                else "First point set. Aim at second point (or air) and right-click"
-                chat(player, "$tip (sneak = cancel)")
+                chat(player, "First point set. Aim to second point (right, left, up, air) and right-click (sneak = cancel)")
             }
         } else {
-            // النقطة الثانية: سواء كانت على بلوكة ثانية أو بالهواء المفتوح
-            val target = cachedTarget ?: getTarget(player, client, first, mode)
+            // النقطة الثانية: حرة بالكامل
+            val target = cachedTarget ?: getTarget(player, client, first)
             sendBuild(BuildPayload.BUILD, mode, first, target, player)
             firstPoint = null
             resetPreview()
         }
     }
 
-    /** حساب النقطة الثانية: إن كانت على بلوكة ياخذها، وإن كانت بالهواء يحسب مكانها بالجو لأي نمط (مربع، جدار، خط، إلخ) */
-    private fun getTarget(player: Player, client: Minecraft, first: BlockPos, mode: BuildMode): BlockPos {
+    /** حساب النقطة الثانية بحرية كاملة ثلاثية الأبعاد (يمين، يسار، فوق، تحت) لكل الأنماط */
+    private fun getTarget(player: Player, client: Minecraft, first: BlockPos): BlockPos {
         val hit = client.hitResult
-        // 1. إذا مأشر على بلوكة صلبة (للتوصيل بين الأماكن)
+        // إذا مأشر على بلوكة صلبة (توصيل مباشر بين مكانين)
         if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
             return hit.blockPos.relative(hit.direction)
         }
 
-        // 2. إذا نمط جدار بالهواء
-        if (mode == BuildMode.WALL) {
-            val w = wallTarget(player, first)
-            if (w != null) return w
-        }
-
-        // 3. لباقي الأنماط (المربع Box، الخط Line، السطح، إلخ) في الهواء:
+        // إذا مأشر بالهواء: حساب الإحداثيات بحرية حسب اتجاه النظر (يمين/يسار/أعلى/أسفل)
         val eye = player.eyePosition
         val dir = player.lookAngle
         val distToFirst = eye.distanceTo(Vec3(first.x + 0.5, first.y + 0.5, first.z + 0.5))
@@ -145,23 +135,6 @@ object EasybuildingClient : ClientModInitializer {
 
         val airPos = eye.add(dir.scale(dist))
         return BlockPos(Mth.floor(airPos.x), Mth.floor(airPos.y), Mth.floor(airPos.z))
-    }
-
-    private fun wallTarget(player: Player, first: BlockPos): BlockPos? {
-        val eye = player.eyePosition
-        val dir = player.lookAngle
-        val alongX = abs(dir.x) > abs(dir.z)
-        val planeCoord = if (alongX) first.x + 0.5 else first.z + 0.5
-        val eyeCoord = if (alongX) eye.x else eye.z
-        val dirCoord = if (alongX) dir.x else dir.z
-        if (abs(dirCoord) < 1.0E-4) return null
-        val t = (planeCoord - eyeCoord) / dirCoord
-        if (t <= 0.0 || t > 200.0) return null
-        return BlockPos(
-            Mth.floor(eye.x + dir.x * t),
-            Mth.floor(eye.y + dir.y * t),
-            Mth.floor(eye.z + dir.z * t)
-        )
     }
 
     private fun isScreenOpen(client: Minecraft): Boolean {
@@ -219,7 +192,7 @@ object EasybuildingClient : ClientModInitializer {
             return
         }
 
-        val target = getTarget(player, client, first, mode)
+        val target = getTarget(player, client, first)
 
         val key = "${mode.ordinal}:$first:$target:${BuildState.mirror}:${BuildState.mirrorCenter}"
         if (key != lastKey) {
