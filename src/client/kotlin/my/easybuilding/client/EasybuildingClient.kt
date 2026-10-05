@@ -1,7 +1,6 @@
 package my.easybuilding.client
 
 import com.mojang.blaze3d.platform.InputConstants
-import kotlin.math.abs
 import kotlin.math.sin
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildPayload
@@ -36,22 +35,14 @@ import net.minecraft.world.phys.Vec3
 object EasybuildingClient : ClientModInitializer {
     private const val MOD_ID = "easybuilding"
     private const val MAX_PER_BLOCK_PREVIEW = 400
-    private const val MAX_AIM = 120.0
-    private const val REFRESH_TICKS = 5
 
     private lateinit var menuKey: KeyMapping
     private lateinit var undoKey: KeyMapping
     private var firstPoint: BlockPos? = null
     private var lastClick = 0L
     private var lastKey: String? = null
-    private var rawPositions: List<BlockPos>? = null
-    private var placeable: List<BlockPos> = emptyList()
-    private var affordable = 0
-    private var tooBig = false
+    private var cachedPositions: List<BlockPos>? = null
     private var cachedTarget: BlockPos? = null
-    private var tickCounter = 0
-    private var wallAxis = 2
-    private var spaceAxis = 1
     private var screenProbe: ((Minecraft) -> Any?)? = null
 
     override fun onInitializeClient() {
@@ -78,11 +69,10 @@ object EasybuildingClient : ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register { client ->
             val player = client.player ?: return@register
             val mode = BuildState.mode
-            if (firstPoint != null && !isScreenOpen(client) && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
-                val hit = client.hitResult
-                val aimingAtBlock = hit != null && hit.type == HitResult.Type.BLOCK
-                if (!aimingAtBlock) {
-                    while (client.options.keyUse.consumeClick()) {
+            if (!isScreenOpen(client) && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
+                while (client.options.keyUse.consumeClick()) {
+                    val hit = client.hitResult
+                    if (firstPoint != null && (hit == null || hit.type != HitResult.Type.BLOCK)) {
                         handleInteraction(player, client, null)
                     }
                 }
@@ -107,10 +97,10 @@ object EasybuildingClient : ClientModInitializer {
 
     private fun isCtrlDown(): Boolean {
         return runCatching {
-            InputConstants.isKeyDown(341) ||
-            InputConstants.isKeyDown(345) ||
-            InputConstants.isKeyDown(343) ||
-            InputConstants.isKeyDown(347)
+            InputConstants.isKeyDown(341) || // Left Ctrl
+            InputConstants.isKeyDown(345) || // Right Ctrl
+            InputConstants.isKeyDown(343) || // Mac Left Command
+            InputConstants.isKeyDown(347)    // Mac Right Command
         }.getOrDefault(false)
     }
 
@@ -121,16 +111,6 @@ object EasybuildingClient : ClientModInitializer {
     fun cancelSelection() {
         firstPoint = null
         resetPreview()
-    }
-
-    private fun lockAxes(player: Player) {
-        val look = player.lookAngle
-        wallAxis = if (abs(look.z) >= abs(look.x)) 2 else 0
-        spaceAxis = when {
-            abs(look.y) > abs(look.x) && abs(look.y) > abs(look.z) -> 1
-            abs(look.z) >= abs(look.x) -> 2
-            else -> 0
-        }
     }
 
     private fun handleInteraction(player: Player, client: Minecraft, hit: BlockHitResult?) {
@@ -154,60 +134,32 @@ object EasybuildingClient : ClientModInitializer {
         if (first == null) {
             if (hit != null && hit.type == HitResult.Type.BLOCK) {
                 firstPoint = hit.blockPos.relative(hit.direction)
-                lockAxes(player)
                 chat(player, "First point set. Aim to second point and right-click (sneak = cancel)")
             }
         } else {
-            val target = cachedTarget ?: resolveTarget(player, client, first, mode)
+            val target = cachedTarget ?: getTarget(player, client, first)
             sendBuild(BuildPayload.BUILD, mode, first, target, player)
             firstPoint = null
             resetPreview()
         }
     }
 
-    private fun axisValue(v: Vec3, axis: Int): Double = when (axis) {
-        0 -> v.x
-        1 -> v.y
-        else -> v.z
-    }
+    private fun getTarget(player: Player, client: Minecraft, first: BlockPos): BlockPos {
+        val hit = client.hitResult
+        if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
+            return hit.blockPos.relative(hit.direction)
+        }
 
-    private fun axisValue(p: BlockPos, axis: Int): Int = when (axis) {
-        0 -> p.x
-        1 -> p.y
-        else -> p.z
-    }
-
-    private fun planeTarget(player: Player, first: BlockPos, axis: Int): BlockPos? {
         val eye = player.eyePosition
         val dir = player.lookAngle
-        val d = axisValue(dir, axis)
-        if (abs(d) < 1e-3) return null
-        val t = (axisValue(first, axis) + 0.5 - axisValue(eye, axis)) / d
-        if (t < 0.0 || t > MAX_AIM) return null
-        val p = eye.add(dir.scale(t))
-        return BlockPos(
-            if (axis == 0) first.x else Mth.floor(p.x),
-            if (axis == 1) first.y else Mth.floor(p.y),
-            if (axis == 2) first.z else Mth.floor(p.z)
-        )
+        val distToFirst = eye.distanceTo(Vec3(first.x + 0.5, first.y + 0.5, first.z + 0.5))
+        val dist = distToFirst.coerceIn(5.0, 35.0)
+
+        val airPos = eye.add(dir.scale(dist))
+        return BlockPos(Mth.floor(airPos.x), Mth.floor(airPos.y), Mth.floor(airPos.z))
     }
 
-    private fun resolveTarget(player: Player, client: Minecraft, first: BlockPos, mode: BuildMode): BlockPos {
-        val fallback = cachedTarget ?: first
-        return when (mode) {
-            BuildMode.FLOOR -> planeTarget(player, first, 1) ?: fallback
-            BuildMode.WALL -> planeTarget(player, first, wallAxis) ?: fallback
-            else -> {
-                val hit = client.hitResult
-                if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
-                    hit.blockPos.relative(hit.direction)
-                } else {
-                    planeTarget(player, first, spaceAxis) ?: fallback
-                }
-            }
-        }
-    }
-
+    // يبني طريقة فحص الشاشة المفتوحة مرة وحدة (reflection) ويخزنها بدل البحث كل tick
     private fun buildScreenProbe(mc: Minecraft): (Minecraft) -> Any? {
         val guiField = runCatching { mc.javaClass.getField("gui") }.getOrNull()
         val gui = guiField?.let { runCatching { it.get(mc) }.getOrNull() }
@@ -249,10 +201,7 @@ object EasybuildingClient : ClientModInitializer {
 
     private fun resetPreview() {
         lastKey = null
-        rawPositions = null
-        placeable = emptyList()
-        affordable = 0
-        tooBig = false
+        cachedPositions = null
         cachedTarget = null
     }
 
@@ -262,36 +211,6 @@ object EasybuildingClient : ClientModInitializer {
         val c = BuildState.mirrorCenter
         if (m == MirrorMode.OFF || c == null) return list
         return Mirror.apply(list, m, c)
-    }
-
-    private fun countItem(player: Player, item: BlockItem): Int {
-        var total = 0
-        for (i in 0 until 36) {
-            val s = player.inventory.getItem(i)
-            if (s.item == item) total += s.count
-        }
-        return total
-    }
-
-    private fun refreshPlaceable(client: Minecraft, player: Player) {
-        val raw = rawPositions
-        val level = client.level
-        if (raw == null || level == null) {
-            placeable = emptyList()
-            affordable = 0
-            return
-        }
-        val seen = HashSet<BlockPos>()
-        val ok = ArrayList<BlockPos>()
-        for (p in raw) {
-            if (!seen.add(p)) continue
-            if (!level.hasChunkAt(p) || level.isOutsideBuildHeight(p)) continue
-            if (!level.getBlockState(p).canBeReplaced()) continue
-            ok.add(p)
-        }
-        placeable = ok
-        val item = player.mainHandItem.item as? BlockItem
-        affordable = if (player.isCreative || item == null) ok.size else minOf(ok.size, countItem(player, item))
     }
 
     private fun updatePreview(client: Minecraft) {
@@ -304,20 +223,14 @@ object EasybuildingClient : ClientModInitializer {
             return
         }
 
-        val target = resolveTarget(player, client, first, mode)
-        tickCounter++
+        val target = getTarget(player, client, first)
 
         val key = "${mode.ordinal}:$first:$target:${BuildState.mirror}:${BuildState.mirrorCenter}"
         if (key != lastKey) {
             lastKey = key
             cachedTarget = target
-            val generated = ShapeGen.generate(mode, first, target)
-            tooBig = generated == null
-            rawPositions = withMirror(generated)
-            refreshPlaceable(client, player)
+            cachedPositions = withMirror(ShapeGen.generate(mode, first, target))
             sendBuild(BuildPayload.PREVIEW, mode, first, target, player)
-        } else if (tickCounter % REFRESH_TICKS == 0) {
-            refreshPlaceable(client, player)
         }
 
         val shown = cachedTarget
@@ -329,8 +242,22 @@ object EasybuildingClient : ClientModInitializer {
     private fun blockBox(p: BlockPos): AABB =
         AABB(p.x.toDouble(), p.y.toDouble(), p.z.toDouble(), p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(0.003)
 
-    private fun drawGroup(list: List<BlockPos>, fill: Int, line: Int) {
-        if (list.isEmpty()) return
+    private fun drawPreview(first: BlockPos, target: BlockPos) {
+        val pulse = 0.5 + 0.5 * sin(System.currentTimeMillis() / 220.0)
+        val fill = argb((35 + 70 * pulse).toInt(), 0xFFFFFF)
+        val line = argb((170 + 85 * pulse).toInt(), 0xFFFFFF)
+        val list = cachedPositions
+
+        if (list == null) {
+            val box = AABB(
+                minOf(first.x, target.x).toDouble(), minOf(first.y, target.y).toDouble(), minOf(first.z, target.z).toDouble(),
+                maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
+            )
+            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(100)
+            Gizmos.cuboid(box, GizmoStyle.stroke(argb(255, 0xFF3030))).persistForMillis(100)
+            return
+        }
+
         if (list.size <= MAX_PER_BLOCK_PREVIEW) {
             for (p in list) {
                 val box = blockBox(p)
@@ -352,28 +279,6 @@ object EasybuildingClient : ClientModInitializer {
             Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(100)
             Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(100)
         }
-    }
-
-    private fun drawPreview(first: BlockPos, target: BlockPos) {
-        val pulse = 0.5 + 0.5 * sin(System.currentTimeMillis() / 220.0)
-
-        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(255, 0x55FF55))).persistForMillis(100)
-        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(255, 0xFFE24D))).persistForMillis(100)
-
-        if (tooBig) {
-            val box = AABB(
-                minOf(first.x, target.x).toDouble(), minOf(first.y, target.y).toDouble(), minOf(first.z, target.z).toDouble(),
-                maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
-            )
-            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(100)
-            Gizmos.cuboid(box, GizmoStyle.stroke(argb(255, 0xFF3030))).persistForMillis(100)
-            return
-        }
-
-        val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
-        val missing = placeable.subList(white.size, placeable.size)
-        drawGroup(white, argb((35 + 70 * pulse).toInt(), 0xFFFFFF), argb((170 + 85 * pulse).toInt(), 0xFFFFFF))
-        drawGroup(missing, argb(45, 0xFF3030), argb(200, 0xFF3030))
     }
 
     private fun drawMirrorPlane(client: Minecraft) {
