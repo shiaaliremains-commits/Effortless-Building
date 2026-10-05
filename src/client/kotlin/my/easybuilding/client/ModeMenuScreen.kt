@@ -1,0 +1,59 @@
+package my.easybuilding.client
+
+import kotlin.math.cos
+import kotlin.math.sin
+import my.easybuilding.BuildMode
+import my.easybuilding.BuildState
+import net.minecraft.ChatFormatting
+import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.components.Button
+import net.minecraft.client.gui.screens.Screen
+import net.minecraft.network.chat.Component
+
+/** Circular build-mode menu: Normal in the middle, the other modes around it. */
+class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
+
+    private fun label(mode: BuildMode): Component {
+        return if (BuildState.mode == mode) {
+            Component.literal("\u2714 " + mode.label).withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+        } else {
+            Component.literal(mode.label)
+        }
+    }
+
+    private fun choose(mode: BuildMode) {
+        BuildState.mode = mode
+        val msg = Component.literal("[Easy Building] ").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
+            .append(Component.literal("Mode: ${mode.label}").withStyle(ChatFormatting.WHITE))
+        Minecraft.getInstance().player?.sendSystemMessage(msg)
+        onClose()
+    }
+
+    private fun addMode(mode: BuildMode, x: Int, y: Int, w: Int) {
+        addRenderableWidget(Button.builder(label(mode)) { _ -> choose(mode) }.bounds(x, y, w, 20).build())
+    }
+
+    override fun init() {
+        val cx = width / 2
+        val cy = height / 2
+        val bw = 84
+        val rx = minOf(105, width / 2 - bw / 2 - 6)
+        val ry = minOf(72, height / 2 - 40).coerceAtLeast(30)
+
+        val header = Button.builder(Component.literal("Build Mode")) { _ -> }
+            .bounds(cx - bw / 2, maxOf(4, cy - ry - 36), bw, 20).build()
+        header.active = false
+        addRenderableWidget(header)
+
+        addMode(BuildMode.NORMAL, cx - bw / 2, cy - 10, bw)
+
+        val outer = BuildMode.entries.filter { it != BuildMode.NORMAL }
+        val step = 360.0 / outer.size
+        for ((i, mode) in outer.withIndex()) {
+            val a = Math.toRadians(-90.0 + step * i)
+            val x = cx + (rx * cos(a)).toInt() - bw / 2
+            val y = cy + (ry * sin(a)).toInt() - 10
+            addMode(mode, x, y, bw)
+        }
+    }
+}
