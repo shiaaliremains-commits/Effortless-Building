@@ -83,9 +83,9 @@ object EasybuildingClient : ClientModInitializer {
                 if (client.player != null) openScreen(ModeMenuScreen())
             }
 
-            // تفعيل Undo فقط عند الضغط على Ctrl + Z معاً
+            // فحص الضغط على Ctrl + Z بأمان تام بدون استخدام Screen.hasControlDown
             while (undoKey.consumeClick()) {
-                if (Screen.hasControlDown() && client.player != null) {
+                if (isCtrlDown() && client.player != null) {
                     sendUndo()
                 }
             }
@@ -93,6 +93,16 @@ object EasybuildingClient : ClientModInitializer {
             updatePreview(client)
             drawMirrorPlane(client)
         }
+    }
+
+    private fun isCtrlDown(): Boolean {
+        return runCatching {
+            val handle = Minecraft.getInstance().window.handle
+            InputConstants.isKeyDown(handle, 341) || // Left Ctrl
+            InputConstants.isKeyDown(handle, 345) || // Right Ctrl
+            InputConstants.isKeyDown(handle, 343) || // Mac Left Command
+            InputConstants.isKeyDown(handle, 347)    // Mac Right Command
+        }.getOrDefault(false)
     }
 
     fun sendUndo() {
