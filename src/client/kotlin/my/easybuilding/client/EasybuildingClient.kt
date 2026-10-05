@@ -273,7 +273,6 @@ object EasybuildingClient : ClientModInitializer {
         return Mirror.apply(list, m, c)
     }
 
-    // فحص البلوكات بالطريقة العامة المتوافقة 100%
     private fun countItem(player: Player, item: BlockItem): Int {
         var total = 0
         for (i in 0 until 36) {
@@ -354,8 +353,9 @@ object EasybuildingClient : ClientModInitializer {
         if (list.size <= MAX_PER_BLOCK_PREVIEW) {
             for (p in list) {
                 val box = blockBox(p)
-                Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(duration)
-                Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(duration)
+                // setAlwaysOnTop يعزل الرسم تماماً عن تأثير ضوء الشمس وعمق البلوكات
+                Gizmos.cuboid(box, GizmoStyle.fill(fill)).apply { persistForMillis(duration); setAlwaysOnTop() }
+                Gizmos.cuboid(box, GizmoStyle.stroke(line)).apply { persistForMillis(duration); setAlwaysOnTop() }
             }
         } else {
             var minX = Int.MAX_VALUE
@@ -369,33 +369,34 @@ object EasybuildingClient : ClientModInitializer {
                 maxX = maxOf(maxX, p.x); maxY = maxOf(maxY, p.y); maxZ = maxOf(maxZ, p.z)
             }
             val box = AABB(minX.toDouble(), minY.toDouble(), minZ.toDouble(), maxX + 1.0, maxY + 1.0, maxZ + 1.0)
-            Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(duration)
-            Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(duration)
+            Gizmos.cuboid(box, GizmoStyle.fill(fill)).apply { persistForMillis(duration); setAlwaysOnTop() }
+            Gizmos.cuboid(box, GizmoStyle.stroke(line)).apply { persistForMillis(duration); setAlwaysOnTop() }
         }
     }
 
     private fun drawPreview(first: BlockPos, target: BlockPos) {
-        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(130, 0x44FF55))).persistForMillis(55)
-        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(130, 0xFFE24D))).persistForMillis(55)
+        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(140, 0x44FF55))).apply { persistForMillis(55); setAlwaysOnTop() }
+        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(140, 0xFFE24D))).apply { persistForMillis(55); setAlwaysOnTop() }
 
         if (tooBig) {
             val box = AABB(
                 minOf(first.x, target.x).toDouble(), minOf(first.y, target.y).toDouble(), minOf(first.z, target.z).toDouble(),
                 maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
             )
-            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(55)
-            Gizmos.cuboid(box, GizmoStyle.stroke(argb(110, 0xFF3030))).persistForMillis(55)
+            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, GizmoStyle.stroke(argb(120, 0xFF3030))).apply { persistForMillis(55); setAlwaysOnTop() }
             return
         }
 
         val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
         val missing = placeable.subList(white.size, placeable.size)
 
-        val greenFill = argb(45, 0x38EF7D)
-        val greenLine = argb(85, 0x38EF7D)
+        // شفافية متزنة وثابتة في الليل والنهار بدون أي وميض
+        val greenFill = argb(55, 0x38EF7D)
+        val greenLine = argb(110, 0x38EF7D)
 
         drawGroup(white, greenFill, greenLine)
-        drawGroup(missing, argb(40, 0xFF3030), argb(85, 0xFF3030))
+        drawGroup(missing, argb(45, 0xFF3030), argb(110, 0xFF3030))
     }
 
     private fun drawMirrorPlane(client: Minecraft) {
@@ -413,14 +414,14 @@ object EasybuildingClient : ClientModInitializer {
         if (m == MirrorMode.X || m == MirrorMode.BOTH) {
             val x = c.x + 0.5
             val box = AABB(x - 0.02, y0, c.z - half, x + 0.02, y1, c.z + half + 1.0)
-            Gizmos.cuboid(box, fill).persistForMillis(55)
-            Gizmos.cuboid(box, line).persistForMillis(55)
+            Gizmos.cuboid(box, fill).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, line).apply { persistForMillis(55); setAlwaysOnTop() }
         }
         if (m == MirrorMode.Z || m == MirrorMode.BOTH) {
             val z = c.z + 0.5
             val box = AABB(c.x - half, y0, z - 0.02, c.x + half + 1.0, y1, z + 0.02)
-            Gizmos.cuboid(box, fill).persistForMillis(55)
-            Gizmos.cuboid(box, line).persistForMillis(55)
+            Gizmos.cuboid(box, fill).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, line).apply { persistForMillis(55); setAlwaysOnTop() }
         }
     }
 
