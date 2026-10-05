@@ -2,7 +2,6 @@ package my.easybuilding.client
 
 import com.mojang.blaze3d.platform.InputConstants
 import kotlin.math.abs
-import kotlin.math.sin
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildPayload
 import my.easybuilding.BuildState
@@ -364,10 +363,9 @@ object EasybuildingClient : ClientModInitializer {
     }
 
     private fun drawPreview(first: BlockPos, target: BlockPos) {
-        val pulse = 0.5 + 0.5 * sin(System.currentTimeMillis() / 220.0)
-
-        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(255, 0x55FF55))).persistForMillis(100)
-        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(255, 0xFFE24D))).persistForMillis(100)
+        // علامة البداية والهدف بشفافية هادئة
+        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(140, 0x44FF55))).persistForMillis(100)
+        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(140, 0xFFE24D))).persistForMillis(100)
 
         if (tooBig) {
             val box = AABB(
@@ -375,14 +373,19 @@ object EasybuildingClient : ClientModInitializer {
                 maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
             )
             Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(100)
-            Gizmos.cuboid(box, GizmoStyle.stroke(argb(255, 0xFF3030))).persistForMillis(100)
+            Gizmos.cuboid(box, GizmoStyle.stroke(argb(120, 0xFF3030))).persistForMillis(100)
             return
         }
 
         val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
         val missing = placeable.subList(white.size, placeable.size)
-        drawGroup(white, argb((35 + 70 * pulse).toInt(), 0xFFFFFF), argb((170 + 85 * pulse).toInt(), 0xFFFFFF))
-        drawGroup(missing, argb(45, 0xFF3030), argb(200, 0xFF3030))
+
+        // أخضر أنيق، شفافية ثابتة ومريحة، وإطار ناعم متناسق
+        val greenFill = argb(45, 0x44FF55)
+        val greenLine = argb(90, 0x44FF55)
+
+        drawGroup(white, greenFill, greenLine)
+        drawGroup(missing, argb(40, 0xFF3030), argb(90, 0xFF3030))
     }
 
     private fun drawMirrorPlane(client: Minecraft) {
