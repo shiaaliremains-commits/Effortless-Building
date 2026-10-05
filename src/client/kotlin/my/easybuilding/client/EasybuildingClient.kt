@@ -13,7 +13,6 @@ import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
-import net.fabricmc.fabric.api.event.player.UseBlockCallback
 import net.minecraft.ChatFormatting
 import net.minecraft.client.KeyMapping
 import net.minecraft.client.Minecraft
@@ -24,13 +23,12 @@ import net.minecraft.gizmos.Gizmos
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
 import net.minecraft.util.Mth
-import net.minecraft.world.InteractionHand
-import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.BlockItem
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
+import net.minecraft.world.phys.Vec3
 
 object EasybuildingClient : ClientModInitializer {
     private const val MOD_ID = "easybuilding"
@@ -49,6 +47,17 @@ object EasybuildingClient : ClientModInitializer {
             KeyMapping("key.easybuilding.menu", InputConstants.KEY_B, category)
         )
 
+        // اعتراض الكليك يمين في بداية التيك حتى يشتغل بالهواء وعلى البلوكات
+        ClientTickEvents.START_CLIENT_TICK.register { client ->
+            val player = client.player ?: return@register
+            val mode = BuildState.mode
+            if (client.screen == null && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
+                while (client.options.keyUse.consumeClick()) {
+                    handleBuildClick(client, player)
+                }
+            }
+        }
+
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             while (menuKey.consumeClick()) {
                 if (client.player != null) openScreen(ModeMenuScreen())
@@ -56,46 +65,59 @@ object EasybuildingClient : ClientModInitializer {
             updatePreview(client)
             drawMirrorPlane(client)
         }
+    }
 
-        UseBlockCallback.EVENT.register { player, level, hand, hit ->
-            val mode = BuildState.mode
-            if (mode == BuildMode.NORMAL) firstPoint = null
+    private fun handleBuildClick(client: Minecraft, player: Player) {
+        val mode = BuildState.mode
+        if (mode == BuildMode.NORMAL) {
+            firstPoint = null
+            return
+        }
 
-            if (!level.isClientSide || hand != InteractionHand.MAIN_HAND || mode == BuildMode.NORMAL ||
-                player.mainHandItem.item !is BlockItem
-            ) {
-                return@register InteractionResult.PASS
-            }
+        val now = System.currentTimeMillis()
+        if (now - lastClick < 250) return
+        lastClick = now
 
-            val now = System.currentTimeMillis()
-            if (now - lastClick < 250) return@register InteractionResult.FAIL
-            lastClick = now
-
-            // sneak + right-click = cancel the selection
-            if (player.isShiftKeyDown) {
-                if (firstPoint != null) {
-                    firstPoint = null
-                    resetPreview()
-                    chat(player, "Selection cancelled")
-                    return@register InteractionResult.FAIL
-                }
-                return@register InteractionResult.PASS
-            }
-
-            val first = firstPoint
-            if (first == null) {
-                firstPoint = hit.blockPos.relative(hit.direction)
-                val tip = if (mode == BuildMode.WALL) "First point set. Look up/down to set the height, then right-click"
-                else "First point set. Aim at the second point and right-click"
-                chat(player, "$tip (sneak = cancel)")
-            } else {
-                val target = wallOrHitTarget(mode, player, first, hit.blockPos.relative(hit.direction))
-                sendBuild(BuildPayload.BUILD, mode, first, target, player)
+        // Shift + Right Click = إلغاء التحديد
+        if (player.isShiftKeyDown) {
+            if (firstPoint != null) {
                 firstPoint = null
                 resetPreview()
+                chat(player, "Selection cancelled")
             }
-            InteractionResult.SUCCESS
+            return
         }
+
+        val first = firstPoint
+        if (first == null) {
+            firstPoint = getLookTarget(player, client, null)
+            val tip = if (mode == BuildMode.WALL) "First point set. Look up/down to set the height, then right-click"
+            else "First point set. Aim at the second point and right-click"
+            chat(player, "$tip (sneak = cancel)")
+        } else {
+            val target = cachedTarget ?: wallOrHitTarget(mode, player, first, getLookTarget(player, client, first))
+            sendBuild(BuildPayload.BUILD, mode, first, target, player)
+            firstPoint = null
+            resetPreview()
+        }
+    }
+
+    /** يحدد مكان البلوكة المستهدفة: إذا كنت تأشر على بلوكة ياخذها، وإذا بالهواء يحسب نقطة بالجو */
+    private fun getLookTarget(player: Player, client: Minecraft, first: BlockPos?): BlockPos {
+        val hit = client.hitResult
+        if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
+            return hit.blockPos.relative(hit.direction)
+        }
+        val eye = player.eyePosition
+        val dir = player.lookAngle
+        val dist = if (first != null) {
+            val d = eye.distanceTo(Vec3(first.x + 0.5, first.y + 0.5, first.z + 0.5))
+            d.coerceIn(3.0, 50.0)
+        } else {
+            4.5
+        }
+        val p = eye.add(dir.scale(dist))
+        return BlockPos(Mth.floor(p.x), Mth.floor(p.y), Mth.floor(p.z))
     }
 
     private fun chat(player: Player, text: String) {
@@ -111,10 +133,7 @@ object EasybuildingClient : ClientModInitializer {
         ClientPlayNetworking.send(BuildPayload(action, mode.ordinal, a, b, mirror.ordinal, center))
     }
 
-    /**
-     * Wall mode: the second point is where your look direction crosses a vertical plane through the first point,
-     * so you can aim at the air above to raise the wall. Other modes use the block you look at.
-     */
+    /** نمط الجدار: تقاطع خط النظر مع المستوى الرأسي */
     private fun wallTarget(player: Player, first: BlockPos): BlockPos? {
         val eye = player.eyePosition
         val dir = player.lookAngle
@@ -167,19 +186,17 @@ object EasybuildingClient : ClientModInitializer {
         var target: BlockPos? = null
         if (mode == BuildMode.WALL) target = wallTarget(player, first)
         if (target == null) {
-            val hit = client.hitResult
-            if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) target = hit.blockPos.relative(hit.direction)
+            target = getLookTarget(player, client, first)
         }
 
-        if (target != null) {
-            val key = "${mode.ordinal}:$first:$target:${BuildState.mirror}:${BuildState.mirrorCenter}"
-            if (key != lastKey) {
-                lastKey = key
-                cachedTarget = target
-                cachedPositions = withMirror(ShapeGen.generate(mode, first, target))
-                sendBuild(BuildPayload.PREVIEW, mode, first, target, player)
-            }
+        val key = "${mode.ordinal}:$first:$target:${BuildState.mirror}:${BuildState.mirrorCenter}"
+        if (key != lastKey) {
+            lastKey = key
+            cachedTarget = target
+            cachedPositions = withMirror(ShapeGen.generate(mode, first, target))
+            sendBuild(BuildPayload.PREVIEW, mode, first, target, player)
         }
+
         val shown = cachedTarget
         if (shown != null) drawPreview(first, shown)
     }
@@ -189,7 +206,6 @@ object EasybuildingClient : ClientModInitializer {
     private fun blockBox(p: BlockPos): AABB =
         AABB(p.x.toDouble(), p.y.toDouble(), p.z.toDouble(), p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(0.003)
 
-    /** breathing translucent white over the blocks that will be built (red box if too big) */
     private fun drawPreview(first: BlockPos, target: BlockPos) {
         val pulse = 0.5 + 0.5 * sin(System.currentTimeMillis() / 220.0)
         val fill = argb((35 + 70 * pulse).toInt(), 0xFFFFFF)
@@ -229,7 +245,6 @@ object EasybuildingClient : ClientModInitializer {
         }
     }
 
-    /** translucent cyan plane(s) showing where the mirror is */
     private fun drawMirrorPlane(client: Minecraft) {
         val player = client.player ?: return
         val m = BuildState.mirror
@@ -256,7 +271,6 @@ object EasybuildingClient : ClientModInitializer {
         }
     }
 
-    /** the screen-opening method moved between versions (Minecraft.setScreen or gui.setScreen), so find it by name */
     fun openScreen(screen: Screen?) {
         val mc = Minecraft.getInstance()
         val gui = runCatching { mc.javaClass.getField("gui").get(mc) }.getOrNull()
