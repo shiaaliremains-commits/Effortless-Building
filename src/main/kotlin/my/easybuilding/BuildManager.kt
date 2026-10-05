@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
+import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
@@ -149,7 +150,6 @@ object BuildManager {
         if (!creative && placed > 0) consume(player, item, placed)
         if (placed > 0) {
             level.playSound(null, target, SoundEvents.STONE_PLACE, SoundSource.BLOCKS, 1.0f, 1.0f)
-            // حفظ آخر بناء للتراجع عنه
             lastBuilds[player.uuid] = LastBuild(history, item, if (creative) 0 else placed)
         }
 
@@ -171,7 +171,8 @@ object BuildManager {
                 restored++
             }
         }
-        // إرجاع البلوكات للإنفنتوري إذا لم يكن Creative
+
+        // إرجاع البلوكات إلى حقيبة اللاعب في طور Survival
         if (!player.isCreative && last.count > 0) {
             var remaining = last.count
             val maxStack = last.item.defaultMaxStackSize
@@ -179,11 +180,14 @@ object BuildManager {
                 val take = minOf(remaining, maxStack)
                 val stack = ItemStack(last.item, take)
                 if (!player.inventory.add(stack)) {
-                    player.drop(stack, false)
+                    // إذا الحقيبة ممتلئة تماماً، نرمي البلوكات عند أقدام اللاعب بأمان
+                    val dropEntity = ItemEntity(level, player.x, player.y, player.z, stack)
+                    level.addFreshEntity(dropEntity)
                 }
                 remaining -= take
             }
         }
+
         level.playSound(null, player.blockPosition(), SoundEvents.STONE_BREAK, SoundSource.PLAYERS, 1.0f, 1.0f)
         say(player, true, "Undid last build ($restored blocks removed)")
     }
