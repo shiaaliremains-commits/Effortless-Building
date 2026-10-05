@@ -12,6 +12,7 @@ import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents
 import net.fabricmc.fabric.api.event.player.UseBlockCallback
 import net.minecraft.ChatFormatting
 import net.minecraft.client.KeyMapping
@@ -116,6 +117,17 @@ object EasybuildingClient : ClientModInitializer {
             }
 
             updatePreview(client)
+        }
+
+        // رسم مباشر مع كل فريم شاشة (FPS) بدون أي تأخير أو تداخل زمني
+        LevelRenderEvents.BEFORE_GIZMOS.register { _ ->
+            val client = Minecraft.getInstance()
+            val player = client.player
+            val first = firstPoint
+            val target = cachedTarget
+            if (player != null && first != null && target != null && BuildState.mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
+                drawPreview(first, target)
+            }
             drawMirrorPlane(client)
         }
     }
@@ -337,9 +349,6 @@ object EasybuildingClient : ClientModInitializer {
         } else if (tickCounter % REFRESH_TICKS == 0) {
             refreshPlaceable(client, player)
         }
-
-        val shown = cachedTarget
-        if (shown != null) drawPreview(first, shown)
     }
 
     private fun argb(alpha: Int, rgb: Int): Int = (alpha.coerceIn(0, 255) shl 24) or (rgb and 0xFFFFFF)
@@ -349,13 +358,12 @@ object EasybuildingClient : ClientModInitializer {
 
     private fun drawGroup(list: List<BlockPos>, fill: Int, line: Int) {
         if (list.isEmpty()) return
-        val duration = 55
+        // بدون persistForMillis نهائياً - يرسم ويمسح فورا مع الفريم بدون تراكم
         if (list.size <= MAX_PER_BLOCK_PREVIEW) {
             for (p in list) {
                 val box = blockBox(p)
-                // setAlwaysOnTop يعزل الرسم تماماً عن تأثير ضوء الشمس وعمق البلوكات
-                Gizmos.cuboid(box, GizmoStyle.fill(fill)).apply { persistForMillis(duration); setAlwaysOnTop() }
-                Gizmos.cuboid(box, GizmoStyle.stroke(line)).apply { persistForMillis(duration); setAlwaysOnTop() }
+                Gizmos.cuboid(box, GizmoStyle.fill(fill))
+                Gizmos.cuboid(box, GizmoStyle.stroke(line))
             }
         } else {
             var minX = Int.MAX_VALUE
@@ -369,29 +377,28 @@ object EasybuildingClient : ClientModInitializer {
                 maxX = maxOf(maxX, p.x); maxY = maxOf(maxY, p.y); maxZ = maxOf(maxZ, p.z)
             }
             val box = AABB(minX.toDouble(), minY.toDouble(), minZ.toDouble(), maxX + 1.0, maxY + 1.0, maxZ + 1.0)
-            Gizmos.cuboid(box, GizmoStyle.fill(fill)).apply { persistForMillis(duration); setAlwaysOnTop() }
-            Gizmos.cuboid(box, GizmoStyle.stroke(line)).apply { persistForMillis(duration); setAlwaysOnTop() }
+            Gizmos.cuboid(box, GizmoStyle.fill(fill))
+            Gizmos.cuboid(box, GizmoStyle.stroke(line))
         }
     }
 
     private fun drawPreview(first: BlockPos, target: BlockPos) {
-        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(140, 0x44FF55))).apply { persistForMillis(55); setAlwaysOnTop() }
-        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(140, 0xFFE24D))).apply { persistForMillis(55); setAlwaysOnTop() }
+        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(140, 0x44FF55)))
+        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(140, 0xFFE24D)))
 
         if (tooBig) {
             val box = AABB(
                 minOf(first.x, target.x).toDouble(), minOf(first.y, target.y).toDouble(), minOf(first.z, target.z).toDouble(),
                 maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
             )
-            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).apply { persistForMillis(55); setAlwaysOnTop() }
-            Gizmos.cuboid(box, GizmoStyle.stroke(argb(120, 0xFF3030))).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030)))
+            Gizmos.cuboid(box, GizmoStyle.stroke(argb(120, 0xFF3030)))
             return
         }
 
         val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
         val missing = placeable.subList(white.size, placeable.size)
 
-        // شفافية متزنة وثابتة في الليل والنهار بدون أي وميض
         val greenFill = argb(55, 0x38EF7D)
         val greenLine = argb(110, 0x38EF7D)
 
@@ -414,14 +421,14 @@ object EasybuildingClient : ClientModInitializer {
         if (m == MirrorMode.X || m == MirrorMode.BOTH) {
             val x = c.x + 0.5
             val box = AABB(x - 0.02, y0, c.z - half, x + 0.02, y1, c.z + half + 1.0)
-            Gizmos.cuboid(box, fill).apply { persistForMillis(55); setAlwaysOnTop() }
-            Gizmos.cuboid(box, line).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, fill)
+            Gizmos.cuboid(box, line)
         }
         if (m == MirrorMode.Z || m == MirrorMode.BOTH) {
             val z = c.z + 0.5
             val box = AABB(c.x - half, y0, z - 0.02, c.x + half + 1.0, y1, z + 0.02)
-            Gizmos.cuboid(box, fill).apply { persistForMillis(55); setAlwaysOnTop() }
-            Gizmos.cuboid(box, line).apply { persistForMillis(55); setAlwaysOnTop() }
+            Gizmos.cuboid(box, fill)
+            Gizmos.cuboid(box, line)
         }
     }
 
