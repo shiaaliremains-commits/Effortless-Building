@@ -51,7 +51,7 @@ object EasybuildingClient : ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register { client ->
             val player = client.player ?: return@register
             val mode = BuildState.mode
-            if (client.screen == null && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
+            if (!isScreenOpen(client) && mode != BuildMode.NORMAL && player.mainHandItem.item is BlockItem) {
                 while (client.options.keyUse.consumeClick()) {
                     handleBuildClick(client, player)
                 }
@@ -65,6 +65,24 @@ object EasybuildingClient : ClientModInitializer {
             updatePreview(client)
             drawMirrorPlane(client)
         }
+    }
+
+    private fun isScreenOpen(client: Minecraft): Boolean {
+        val mc = client
+        val gui = runCatching { mc.javaClass.getField("gui").get(mc) }.getOrNull()
+        if (gui != null) {
+            val screenFromGui = runCatching {
+                val method = gui.javaClass.methods.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
+                method?.invoke(gui)
+            }.getOrNull()
+            if (screenFromGui != null) return true
+        }
+        val screenFromMc = runCatching {
+            val method = mc.javaClass.methods.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
+            if (method != null) method.invoke(mc)
+            else mc.javaClass.getField("screen").get(mc)
+        }.getOrNull()
+        return screenFromMc != null
     }
 
     private fun handleBuildClick(client: Minecraft, player: Player) {
