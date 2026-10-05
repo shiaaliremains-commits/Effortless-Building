@@ -91,13 +91,29 @@ object EasybuildingClient : ClientModInitializer {
         }
 
         ClientTickEvents.END_CLIENT_TICK.register { client ->
+            val player = client.player
+
             while (menuKey.consumeClick()) {
-                if (client.player != null) openScreen(ModeMenuScreen())
+                if (player != null) openScreen(ModeMenuScreen())
             }
 
+            // ضغطة Z بمفردها تلغي التحديد، ومع Ctrl تسوي Undo
             while (undoKey.consumeClick()) {
-                if (isCtrlDown() && client.player != null) {
-                    sendUndo()
+                if (player != null) {
+                    if (isCtrlDown()) {
+                        sendUndo()
+                    } else if (firstPoint != null) {
+                        cancelSelection()
+                        chat(player, "Selection cancelled")
+                    }
+                }
+            }
+
+            // Left-Click يلغي التحديد الحالي بسهولة
+            if (firstPoint != null && client.options.keyAttack.consumeClick()) {
+                if (player != null) {
+                    cancelSelection()
+                    chat(player, "Selection cancelled")
                 }
             }
 
@@ -142,21 +158,12 @@ object EasybuildingClient : ClientModInitializer {
         if (now - lastClick < 250) return
         lastClick = now
 
-        if (player.isShiftKeyDown) {
-            if (firstPoint != null) {
-                firstPoint = null
-                resetPreview()
-                chat(player, "Selection cancelled")
-            }
-            return
-        }
-
         val first = firstPoint
         if (first == null) {
             if (hit != null && hit.type == HitResult.Type.BLOCK) {
                 firstPoint = hit.blockPos.relative(hit.direction)
                 lockAxes(player)
-                chat(player, "First point set. Aim to second point and right-click (sneak = cancel)")
+                chat(player, "First point set. Aim to second point and right-click (Z or Left-Click = cancel)")
             }
         } else {
             if (autoDirection) {
@@ -268,15 +275,19 @@ object EasybuildingClient : ClientModInitializer {
         return Mirror.apply(list, m, c)
     }
 
+    // دعم اليد الثانية والشنطة
     private fun countItem(player: Player, item: BlockItem): Int {
         var total = 0
-        for (i in 0 until 36) {
-            val s = player.inventory.getItem(i)
+        for (s in player.inventory.items) {
+            if (s.item == item) total += s.count
+        }
+        for (s in player.inventory.offhand) {
             if (s.item == item) total += s.count
         }
         return total
     }
 
+    // استثناء البلوكات التي تتقاطع مع جسم اللاعب من المعاينة
     private fun refreshPlaceable(client: Minecraft, player: Player) {
         val raw = rawPositions
         val level = client.level
@@ -287,10 +298,13 @@ object EasybuildingClient : ClientModInitializer {
         }
         val seen = HashSet<BlockPos>()
         val ok = ArrayList<BlockPos>()
+        val playerBox = player.boundingBox.deflate(1e-4)
+
         for (p in raw) {
             if (!seen.add(p)) continue
             if (!level.hasChunkAt(p) || level.isOutsideBuildHeight(p)) continue
             if (!level.getBlockState(p).canBeReplaced()) continue
+            if (playerBox.intersects(AABB(p).deflate(1e-4))) continue
             ok.add(p)
         }
         placeable = ok
@@ -339,7 +353,6 @@ object EasybuildingClient : ClientModInitializer {
 
     private fun drawGroup(list: List<BlockPos>, fill: Int, line: Int) {
         if (list.isEmpty()) return
-        // مدة العرض 55ms فقط (تغطي مدة التيك الواحد تماماً بدون تراكم طبقات يسبب الرمشة)
         val duration = 55
         if (list.size <= MAX_PER_BLOCK_PREVIEW) {
             for (p in list) {
@@ -365,7 +378,6 @@ object EasybuildingClient : ClientModInitializer {
     }
 
     private fun drawPreview(first: BlockPos, target: BlockPos) {
-        // علامة البداية والهدف بمدة متطابقة وثابتة
         Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(130, 0x44FF55))).persistForMillis(55)
         Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(130, 0xFFE24D))).persistForMillis(55)
 
@@ -382,7 +394,6 @@ object EasybuildingClient : ClientModInitializer {
         val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
         val missing = placeable.subList(white.size, placeable.size)
 
-        // شفافية متناسقة وهادئة وثابتة 100%
         val greenFill = argb(45, 0x38EF7D)
         val greenLine = argb(85, 0x38EF7D)
 
