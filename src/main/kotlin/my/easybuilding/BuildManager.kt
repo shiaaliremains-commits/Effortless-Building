@@ -1,5 +1,6 @@
 package my.easybuilding
 
+import java.util.UUID
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking
 import net.minecraft.ChatFormatting
@@ -11,10 +12,20 @@ import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.Item
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.block.state.BlockState
 
-/** Server side: checks the request, places the blocks and takes them from the inventory. */
 object BuildManager {
     private const val MAX_RANGE = 128.0
+
+    private data class LastBuild(
+        val entries: List<Pair<BlockPos, BlockState>>,
+        val item: Item,
+        val count: Int
+    )
+
+    // يحفظ فقط آخر بناء لكل لاعب
+    private val lastBuilds = HashMap<UUID, LastBuild>()
 
     fun init() {
         PayloadTypeRegistry.serverboundPlay().register(BuildPayload.TYPE, BuildPayload.CODEC)
@@ -61,6 +72,11 @@ object BuildManager {
     }
 
     private fun handle(player: ServerPlayer, p: BuildPayload) {
+        if (p.action == BuildPayload.UNDO) {
+            undo(player)
+            return
+        }
+
         val mode = BuildMode.entries.getOrNull(p.mode) ?: return
         if (mode == BuildMode.NORMAL) return
         val mirror = MirrorMode.entries.getOrNull(p.mirror) ?: MirrorMode.OFF
@@ -117,19 +133,58 @@ object BuildManager {
             return
         }
 
+        val history = ArrayList<Pair<BlockPos, BlockState>>()
         var placed = 0
         for (pos in positions) {
             if (placed >= budget) break
             if (!level.hasChunkAt(pos) || level.isOutsideBuildHeight(pos)) continue
-            if (!level.getBlockState(pos).canBeReplaced()) continue
-            if (level.setBlock(pos, state, 3)) placed++
+            val oldState = level.getBlockState(pos)
+            if (!oldState.canBeReplaced()) continue
+            if (level.setBlock(pos, state, 3)) {
+                history.add(pos to oldState)
+                placed++
+            }
         }
 
         if (!creative && placed > 0) consume(player, item, placed)
-        if (placed > 0) level.playSound(null, target, SoundEvents.STONE_PLACE, SoundSource.BLOCKS, 1.0f, 1.0f)
+        if (placed > 0) {
+            level.playSound(null, target, SoundEvents.STONE_PLACE, SoundSource.BLOCKS, 1.0f, 1.0f)
+            // حفظ آخر بناء للتراجع عنه
+            lastBuilds[player.uuid] = LastBuild(history, item, if (creative) 0 else placed)
+        }
 
         val skipped = positions.size - placed
         if (placed == 0) say(player, false, "Nothing was built (spots are occupied or no blocks)")
         else say(player, true, "Built $placed blocks" + if (skipped > 0) " ($skipped skipped)" else "")
+    }
+
+    private fun undo(player: ServerPlayer) {
+        val last = lastBuilds.remove(player.uuid)
+        if (last == null) {
+            say(player, false, "Nothing to undo")
+            return
+        }
+        val level = player.level() as ServerLevel
+        var restored = 0
+        for ((pos, oldState) in last.entries.asReversed()) {
+            if (level.setBlock(pos, oldState, 3)) {
+                restored++
+            }
+        }
+        // إرجاع البلوكات للإنفنتوري إذا لم يكن Creative
+        if (!player.isCreative && last.count > 0) {
+            var remaining = last.count
+            val maxStack = last.item.defaultMaxStackSize
+            while (remaining > 0) {
+                val take = minOf(remaining, maxStack)
+                val stack = ItemStack(last.item, take)
+                if (!player.inventory.add(stack)) {
+                    player.drop(stack, false)
+                }
+                remaining -= take
+            }
+        }
+        level.playSound(null, player.blockPosition(), SoundEvents.STONE_BREAK, SoundSource.PLAYERS, 1.0f, 1.0f)
+        say(player, true, "Undid last build ($restored blocks removed)")
     }
 }

@@ -37,6 +37,7 @@ object EasybuildingClient : ClientModInitializer {
     private const val MAX_PER_BLOCK_PREVIEW = 400
 
     private lateinit var menuKey: KeyMapping
+    private lateinit var undoKey: KeyMapping
     private var firstPoint: BlockPos? = null
     private var lastClick = 0L
     private var lastKey: String? = null
@@ -48,8 +49,10 @@ object EasybuildingClient : ClientModInitializer {
         menuKey = KeyMappingHelper.registerKeyMapping(
             KeyMapping("key.easybuilding.menu", InputConstants.KEY_B, category)
         )
+        undoKey = KeyMappingHelper.registerKeyMapping(
+            KeyMapping("key.easybuilding.undo", InputConstants.KEY_Z, category)
+        )
 
-        // 1. عند النقر على بلوكة صلبة (تحديد النقطة الأولى أو التوصيل ببلوكة ثانية)
         UseBlockCallback.EVENT.register { player, level, hand, hit ->
             val mode = BuildState.mode
             if (mode == BuildMode.NORMAL || hand != InteractionHand.MAIN_HAND || player.mainHandItem.item !is BlockItem) {
@@ -62,7 +65,6 @@ object EasybuildingClient : ClientModInitializer {
             InteractionResult.SUCCESS
         }
 
-        // 2. عند النقر بالهواء للنقطة الثانية (يمين، يسار، فوق، تحت)
         ClientTickEvents.START_CLIENT_TICK.register { client ->
             val player = client.player ?: return@register
             val mode = BuildState.mode
@@ -80,9 +82,21 @@ object EasybuildingClient : ClientModInitializer {
             while (menuKey.consumeClick()) {
                 if (client.player != null) openScreen(ModeMenuScreen())
             }
+
+            // تفعيل Undo فقط عند الضغط على Ctrl + Z معاً
+            while (undoKey.consumeClick()) {
+                if (Screen.hasControlDown() && client.player != null) {
+                    sendUndo()
+                }
+            }
+
             updatePreview(client)
             drawMirrorPlane(client)
         }
+    }
+
+    fun sendUndo() {
+        ClientPlayNetworking.send(BuildPayload(BuildPayload.UNDO, 0, BlockPos.ZERO, BlockPos.ZERO, 0, BlockPos.ZERO))
     }
 
     private fun handleInteraction(player: Player, client: Minecraft, hit: BlockHitResult?) {
@@ -93,7 +107,6 @@ object EasybuildingClient : ClientModInitializer {
         if (now - lastClick < 250) return
         lastClick = now
 
-        // Shift + Right Click = إلغاء التحديد
         if (player.isShiftKeyDown) {
             if (firstPoint != null) {
                 firstPoint = null
@@ -105,13 +118,11 @@ object EasybuildingClient : ClientModInitializer {
 
         val first = firstPoint
         if (first == null) {
-            // النقطة الأولى: حصراً على بلوكة صلبة
             if (hit != null && hit.type == HitResult.Type.BLOCK) {
                 firstPoint = hit.blockPos.relative(hit.direction)
-                chat(player, "First point set. Aim to second point (right, left, up, air) and right-click (sneak = cancel)")
+                chat(player, "First point set. Aim to second point and right-click (sneak = cancel)")
             }
         } else {
-            // النقطة الثانية: حرة بالكامل
             val target = cachedTarget ?: getTarget(player, client, first)
             sendBuild(BuildPayload.BUILD, mode, first, target, player)
             firstPoint = null
@@ -119,15 +130,12 @@ object EasybuildingClient : ClientModInitializer {
         }
     }
 
-    /** حساب النقطة الثانية بحرية كاملة ثلاثية الأبعاد (يمين، يسار، فوق، تحت) لكل الأنماط */
     private fun getTarget(player: Player, client: Minecraft, first: BlockPos): BlockPos {
         val hit = client.hitResult
-        // إذا مأشر على بلوكة صلبة (توصيل مباشر بين مكانين)
         if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
             return hit.blockPos.relative(hit.direction)
         }
 
-        // إذا مأشر بالهواء: حساب الإحداثيات بحرية حسب اتجاه النظر (يمين/يسار/أعلى/أسفل)
         val eye = player.eyePosition
         val dir = player.lookAngle
         val distToFirst = eye.distanceTo(Vec3(first.x + 0.5, first.y + 0.5, first.z + 0.5))

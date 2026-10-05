@@ -7,7 +7,6 @@ import net.minecraft.network.codec.StreamCodec
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.minecraft.resources.Identifier
 
-/** client -> server: build the shape (BUILD) or ask for the block count of the preview (PREVIEW) */
 class BuildPayload(
     val action: Int,
     val mode: Int,
@@ -21,6 +20,7 @@ class BuildPayload(
     companion object {
         const val BUILD = 0
         const val PREVIEW = 1
+        const val UNDO = 2
 
         val TYPE: CustomPacketPayload.Type<BuildPayload> =
             CustomPacketPayload.Type(Identifier.fromNamespaceAndPath("easybuilding", "build"))

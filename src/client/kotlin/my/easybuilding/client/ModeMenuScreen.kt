@@ -11,7 +11,6 @@ import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 
-/** Circular build-mode menu: Normal in the middle, the other modes around it, mirror buttons at the bottom. */
 class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
     private lateinit var mirrorBtn: Button
 
@@ -85,14 +84,23 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
             addMode(mode, x, y, bw)
         }
 
-        // mirror controls at the bottom
-        val mw = minOf(150, width / 2 - 8)
+        // أزرار المرآة وزر التراجع في الأسفل
+        val mw = minOf(100, width / 3 - 6)
         mirrorBtn = Button.builder(mirrorLabel()) { _ -> cycleMirror() }
-            .bounds(cx - mw - 4, height - 28, mw, 20).build()
+            .bounds(cx - mw * 3 / 2 - 4, height - 28, mw, 20).build()
         addRenderableWidget(mirrorBtn)
+
         addRenderableWidget(
-            Button.builder(Component.literal("Set Mirror Center Here")) { _ -> setCenter(true) }
-                .bounds(cx + 4, height - 28, mw, 20).build()
+            Button.builder(Component.literal("Set Mirror")) { _ -> setCenter(true) }
+                .bounds(cx - mw / 2, height - 28, mw, 20).build()
+        )
+
+        // زر التراجع
+        addRenderableWidget(
+            Button.builder(Component.literal("↩ Undo (Ctrl+Z)")) { _ ->
+                EasybuildingClient.sendUndo()
+                onClose()
+            }.bounds(cx + mw / 2 + 4, height - 28, mw, 20).build()
         )
     }
 }
