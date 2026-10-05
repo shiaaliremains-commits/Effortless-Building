@@ -4,14 +4,16 @@ import kotlin.math.cos
 import kotlin.math.sin
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildState
+import my.easybuilding.MirrorMode
 import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 
-/** Circular build-mode menu: Normal in the middle, the other modes around it. */
+/** Circular build-mode menu: Normal in the middle, the other modes around it, mirror buttons at the bottom. */
 class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
+    private lateinit var mirrorBtn: Button
 
     private fun label(mode: BuildMode): Component {
         return if (BuildState.mode == mode) {
@@ -21,12 +23,39 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
         }
     }
 
+    private fun mirrorLabel(): Component {
+        val m = BuildState.mirror
+        return if (m == MirrorMode.OFF) {
+            Component.literal("Mirror: Off")
+        } else {
+            Component.literal("Mirror: ${m.label}").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
+        }
+    }
+
+    private fun say(text: String) {
+        val msg = Component.literal("[Easy Building] ").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
+            .append(Component.literal(text).withStyle(ChatFormatting.WHITE))
+        Minecraft.getInstance().player?.sendSystemMessage(msg)
+    }
+
     private fun choose(mode: BuildMode) {
         BuildState.mode = mode
-        val msg = Component.literal("[Easy Building] ").withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD)
-            .append(Component.literal("Mode: ${mode.label}").withStyle(ChatFormatting.WHITE))
-        Minecraft.getInstance().player?.sendSystemMessage(msg)
+        say("Mode: ${mode.label}")
         onClose()
+    }
+
+    private fun setCenter(announce: Boolean) {
+        val player = Minecraft.getInstance().player ?: return
+        val pos = player.blockPosition()
+        BuildState.mirrorCenter = pos
+        if (announce) say("Mirror center set at (${pos.x}, ${pos.z})")
+    }
+
+    private fun cycleMirror() {
+        val all = MirrorMode.entries
+        BuildState.mirror = all[(BuildState.mirror.ordinal + 1) % all.size]
+        if (BuildState.mirror != MirrorMode.OFF && BuildState.mirrorCenter == null) setCenter(true)
+        mirrorBtn.message = mirrorLabel()
     }
 
     private fun addMode(mode: BuildMode, x: Int, y: Int, w: Int) {
@@ -38,7 +67,7 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
         val cy = height / 2
         val bw = 84
         val rx = minOf(105, width / 2 - bw / 2 - 6)
-        val ry = minOf(72, height / 2 - 40).coerceAtLeast(30)
+        val ry = minOf(72, height / 2 - 50).coerceAtLeast(30)
 
         val header = Button.builder(Component.literal("Build Mode")) { _ -> }
             .bounds(cx - bw / 2, maxOf(4, cy - ry - 36), bw, 20).build()
@@ -55,5 +84,15 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building")) {
             val y = cy + (ry * sin(a)).toInt() - 10
             addMode(mode, x, y, bw)
         }
+
+        // mirror controls at the bottom
+        val mw = minOf(150, width / 2 - 8)
+        mirrorBtn = Button.builder(mirrorLabel()) { _ -> cycleMirror() }
+            .bounds(cx - mw - 4, height - 28, mw, 20).build()
+        addRenderableWidget(mirrorBtn)
+        addRenderableWidget(
+            Button.builder(Component.literal("Set Mirror Center Here")) { _ -> setCenter(true) }
+                .bounds(cx + 4, height - 28, mw, 20).build()
+        )
     }
 }

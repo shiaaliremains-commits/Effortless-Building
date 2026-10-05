@@ -63,12 +63,20 @@ object BuildManager {
     private fun handle(player: ServerPlayer, p: BuildPayload) {
         val mode = BuildMode.entries.getOrNull(p.mode) ?: return
         if (mode == BuildMode.NORMAL) return
+        val mirror = MirrorMode.entries.getOrNull(p.mirror) ?: MirrorMode.OFF
         val item = player.mainHandItem.item as? BlockItem
-        if (tooFar(player, p.a) || tooFar(player, p.b)) {
+
+        if (tooFar(player, p.a) || tooFar(player, p.b) || (mirror != MirrorMode.OFF && tooFar(player, p.center))) {
             if (p.action == BuildPayload.BUILD) say(player, false, "Too far (max ${MAX_RANGE.toInt()} blocks)")
             return
         }
-        val positions = ShapeGen.generate(mode, p.a, p.b)
+
+        var positions: List<BlockPos>? = ShapeGen.generate(mode, p.a, p.b)
+        if (positions != null && mirror != MirrorMode.OFF) {
+            val mirrored = Mirror.apply(positions, mirror, p.center)
+            positions = if (mirrored.size > ShapeGen.MAX_BLOCKS * 4) null else mirrored
+        }
+
         if (p.action == BuildPayload.PREVIEW) preview(player, mode, item, positions) else build(player, item, positions, p.b)
     }
 

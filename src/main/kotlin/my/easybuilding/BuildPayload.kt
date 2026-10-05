@@ -8,7 +8,14 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload
 import net.minecraft.resources.Identifier
 
 /** client -> server: build the shape (BUILD) or ask for the block count of the preview (PREVIEW) */
-class BuildPayload(val action: Int, val mode: Int, val a: BlockPos, val b: BlockPos) : CustomPacketPayload {
+class BuildPayload(
+    val action: Int,
+    val mode: Int,
+    val a: BlockPos,
+    val b: BlockPos,
+    val mirror: Int,
+    val center: BlockPos
+) : CustomPacketPayload {
     override fun type(): CustomPacketPayload.Type<out CustomPacketPayload> = TYPE
 
     companion object {
@@ -19,12 +26,14 @@ class BuildPayload(val action: Int, val mode: Int, val a: BlockPos, val b: Block
             CustomPacketPayload.Type(Identifier.fromNamespaceAndPath("easybuilding", "build"))
 
         val CODEC: StreamCodec<RegistryFriendlyByteBuf, BuildPayload> =
-            StreamCodec.composite<RegistryFriendlyByteBuf, BuildPayload, Int, Int, BlockPos, BlockPos>(
+            StreamCodec.composite<RegistryFriendlyByteBuf, BuildPayload, Int, Int, BlockPos, BlockPos, Int, BlockPos>(
                 ByteBufCodecs.INT, { p: BuildPayload -> p.action },
                 ByteBufCodecs.INT, { p: BuildPayload -> p.mode },
                 BlockPos.STREAM_CODEC, { p: BuildPayload -> p.a },
                 BlockPos.STREAM_CODEC, { p: BuildPayload -> p.b },
-                { x: Int, y: Int, z: BlockPos, w: BlockPos -> BuildPayload(x, y, z, w) }
+                ByteBufCodecs.INT, { p: BuildPayload -> p.mirror },
+                BlockPos.STREAM_CODEC, { p: BuildPayload -> p.center },
+                { w: Int, x: Int, y: BlockPos, z: BlockPos, v: Int, u: BlockPos -> BuildPayload(w, x, y, z, v, u) }
             )
     }
 }

@@ -1,10 +1,13 @@
 package my.easybuilding.client
 
 import com.mojang.blaze3d.platform.InputConstants
+import kotlin.math.abs
 import kotlin.math.sin
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildPayload
 import my.easybuilding.BuildState
+import my.easybuilding.Mirror
+import my.easybuilding.MirrorMode
 import my.easybuilding.ShapeGen
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -20,6 +23,7 @@ import net.minecraft.gizmos.GizmoStyle
 import net.minecraft.gizmos.Gizmos
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
+import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
@@ -50,6 +54,7 @@ object EasybuildingClient : ClientModInitializer {
                 if (client.player != null) openScreen(ModeMenuScreen())
             }
             updatePreview(client)
+            drawMirrorPlane(client)
         }
 
         UseBlockCallback.EVENT.register { player, level, hand, hit ->
@@ -77,13 +82,15 @@ object EasybuildingClient : ClientModInitializer {
                 return@register InteractionResult.PASS
             }
 
-            val target = hit.blockPos.relative(hit.direction)
             val first = firstPoint
             if (first == null) {
-                firstPoint = target
-                chat(player, "First point set. Aim at the second point and right-click (sneak = cancel)")
+                firstPoint = hit.blockPos.relative(hit.direction)
+                val tip = if (mode == BuildMode.WALL) "First point set. Look up/down to set the height, then right-click"
+                else "First point set. Aim at the second point and right-click"
+                chat(player, "$tip (sneak = cancel)")
             } else {
-                ClientPlayNetworking.send(BuildPayload(BuildPayload.BUILD, mode.ordinal, first, target))
+                val target = wallOrHitTarget(mode, player, first, hit.blockPos.relative(hit.direction))
+                sendBuild(BuildPayload.BUILD, mode, first, target, player)
                 firstPoint = null
                 resetPreview()
             }
@@ -97,10 +104,54 @@ object EasybuildingClient : ClientModInitializer {
         player.sendSystemMessage(msg)
     }
 
+    private fun sendBuild(action: Int, mode: BuildMode, a: BlockPos, b: BlockPos, player: Player) {
+        val mirror = BuildState.mirror
+        if (mirror != MirrorMode.OFF && BuildState.mirrorCenter == null) BuildState.mirrorCenter = player.blockPosition()
+        val center = BuildState.mirrorCenter ?: BlockPos.ZERO
+        ClientPlayNetworking.send(BuildPayload(action, mode.ordinal, a, b, mirror.ordinal, center))
+    }
+
+    /**
+     * Wall mode: the second point is where your look direction crosses a vertical plane through the first point,
+     * so you can aim at the air above to raise the wall. Other modes use the block you look at.
+     */
+    private fun wallTarget(player: Player, first: BlockPos): BlockPos? {
+        val eye = player.eyePosition
+        val dir = player.lookAngle
+        val alongX = abs(dir.x) > abs(dir.z)
+        val planeCoord = if (alongX) first.x + 0.5 else first.z + 0.5
+        val eyeCoord = if (alongX) eye.x else eye.z
+        val dirCoord = if (alongX) dir.x else dir.z
+        if (abs(dirCoord) < 1.0E-4) return null
+        val t = (planeCoord - eyeCoord) / dirCoord
+        if (t <= 0.0 || t > 200.0) return null
+        return BlockPos(
+            Mth.floor(eye.x + dir.x * t),
+            Mth.floor(eye.y + dir.y * t),
+            Mth.floor(eye.z + dir.z * t)
+        )
+    }
+
+    private fun wallOrHitTarget(mode: BuildMode, player: Player, first: BlockPos, fallback: BlockPos?): BlockPos {
+        if (mode == BuildMode.WALL) {
+            val w = wallTarget(player, first)
+            if (w != null) return w
+        }
+        return fallback ?: first
+    }
+
     private fun resetPreview() {
         lastKey = null
         cachedPositions = null
         cachedTarget = null
+    }
+
+    private fun withMirror(list: List<BlockPos>?): List<BlockPos>? {
+        if (list == null) return null
+        val m = BuildState.mirror
+        val c = BuildState.mirrorCenter
+        if (m == MirrorMode.OFF || c == null) return list
+        return Mirror.apply(list, m, c)
     }
 
     private fun updatePreview(client: Minecraft) {
@@ -113,18 +164,24 @@ object EasybuildingClient : ClientModInitializer {
             return
         }
 
-        val hit = client.hitResult
-        if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) {
-            val target = hit.blockPos.relative(hit.direction)
-            val key = "${mode.ordinal}:$first:$target"
+        var target: BlockPos? = null
+        if (mode == BuildMode.WALL) target = wallTarget(player, first)
+        if (target == null) {
+            val hit = client.hitResult
+            if (hit is BlockHitResult && hit.type == HitResult.Type.BLOCK) target = hit.blockPos.relative(hit.direction)
+        }
+
+        if (target != null) {
+            val key = "${mode.ordinal}:$first:$target:${BuildState.mirror}:${BuildState.mirrorCenter}"
             if (key != lastKey) {
                 lastKey = key
                 cachedTarget = target
-                cachedPositions = ShapeGen.generate(mode, first, target)
-                ClientPlayNetworking.send(BuildPayload(BuildPayload.PREVIEW, mode.ordinal, first, target))
+                cachedPositions = withMirror(ShapeGen.generate(mode, first, target))
+                sendBuild(BuildPayload.PREVIEW, mode, first, target, player)
             }
         }
-        if (cachedTarget != null) drawPreview(first, cachedTarget!!)
+        val shown = cachedTarget
+        if (shown != null) drawPreview(first, shown)
     }
 
     private fun argb(alpha: Int, rgb: Int): Int = (alpha.coerceIn(0, 255) shl 24) or (rgb and 0xFFFFFF)
@@ -169,6 +226,33 @@ object EasybuildingClient : ClientModInitializer {
             val box = AABB(minX.toDouble(), minY.toDouble(), minZ.toDouble(), maxX + 1.0, maxY + 1.0, maxZ + 1.0)
             Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(100)
             Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(100)
+        }
+    }
+
+    /** translucent cyan plane(s) showing where the mirror is */
+    private fun drawMirrorPlane(client: Minecraft) {
+        val player = client.player ?: return
+        val m = BuildState.mirror
+        val c = BuildState.mirrorCenter ?: return
+        if (m == MirrorMode.OFF || BuildState.mode == BuildMode.NORMAL || player.mainHandItem.item !is BlockItem) return
+
+        val y0 = Mth.floor(player.y) - 6.0
+        val y1 = Mth.floor(player.y) + 14.0
+        val half = 24.0
+        val fill = GizmoStyle.fill(argb(34, 0x00E5FF))
+        val line = GizmoStyle.stroke(argb(200, 0x00E5FF))
+
+        if (m == MirrorMode.X || m == MirrorMode.BOTH) {
+            val x = c.x + 0.5
+            val box = AABB(x - 0.02, y0, c.z - half, x + 0.02, y1, c.z + half + 1.0)
+            Gizmos.cuboid(box, fill).persistForMillis(100)
+            Gizmos.cuboid(box, line).persistForMillis(100)
+        }
+        if (m == MirrorMode.Z || m == MirrorMode.BOTH) {
+            val z = c.z + 0.5
+            val box = AABB(c.x - half, y0, z - 0.02, c.x + half + 1.0, y1, z + 0.02)
+            Gizmos.cuboid(box, fill).persistForMillis(100)
+            Gizmos.cuboid(box, line).persistForMillis(100)
         }
     }
 
