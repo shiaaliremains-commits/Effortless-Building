@@ -25,7 +25,6 @@ object BuildManager {
         val count: Int
     )
 
-    // يحفظ فقط آخر بناء لكل لاعب
     private val lastBuilds = HashMap<UUID, LastBuild>()
 
     fun init() {
@@ -72,6 +71,9 @@ object BuildManager {
         }
     }
 
+    private fun canPlaceAt(level: ServerLevel, pos: BlockPos): Boolean =
+        level.hasChunkAt(pos) && !level.isOutsideBuildHeight(pos) && level.getBlockState(pos).canBeReplaced()
+
     private fun handle(player: ServerPlayer, p: BuildPayload) {
         if (p.action == BuildPayload.UNDO) {
             undo(player)
@@ -93,6 +95,7 @@ object BuildManager {
             val mirrored = Mirror.apply(positions, mirror, p.center)
             positions = if (mirrored.size > ShapeGen.MAX_BLOCKS * 4) null else mirrored
         }
+        positions = positions?.distinct()
 
         if (p.action == BuildPayload.PREVIEW) preview(player, mode, item, positions) else build(player, item, positions, p.b)
     }
@@ -102,7 +105,12 @@ object BuildManager {
             hud(player, "Too big (max ${ShapeGen.MAX_BLOCKS} blocks)", ChatFormatting.RED)
             return
         }
-        val need = positions.size
+        val level = player.level() as ServerLevel
+        val need = positions.count { canPlaceAt(level, it) }
+        if (need == 0) {
+            hud(player, "${mode.label}: nothing to build here", ChatFormatting.RED)
+            return
+        }
         if (item == null || player.isCreative) {
             hud(player, "${mode.label}: $need blocks", ChatFormatting.AQUA)
             return
@@ -138,9 +146,8 @@ object BuildManager {
         var placed = 0
         for (pos in positions) {
             if (placed >= budget) break
-            if (!level.hasChunkAt(pos) || level.isOutsideBuildHeight(pos)) continue
+            if (!canPlaceAt(level, pos)) continue
             val oldState = level.getBlockState(pos)
-            if (!oldState.canBeReplaced()) continue
             if (level.setBlock(pos, state, 3)) {
                 history.add(pos to oldState)
                 placed++
@@ -172,7 +179,6 @@ object BuildManager {
             }
         }
 
-        // إرجاع البلوكات إلى حقيبة اللاعب في طور Survival
         if (!player.isCreative && last.count > 0) {
             var remaining = last.count
             val maxStack = last.item.defaultMaxStackSize
@@ -180,7 +186,6 @@ object BuildManager {
                 val take = minOf(remaining, maxStack)
                 val stack = ItemStack(last.item, take)
                 if (!player.inventory.add(stack)) {
-                    // إذا الحقيبة ممتلئة تماماً، نرمي البلوكات عند أقدام اللاعب بأمان
                     val dropEntity = ItemEntity(level, player.x, player.y, player.z, stack)
                     level.addFreshEntity(dropEntity)
                 }
