@@ -97,7 +97,6 @@ object EasybuildingClient : ClientModInitializer {
                 if (player != null) openScreen(ModeMenuScreen())
             }
 
-            // ضغطة Z بمفردها تلغي التحديد، ومع Ctrl تسوي Undo
             while (undoKey.consumeClick()) {
                 if (player != null) {
                     if (isCtrlDown()) {
@@ -109,7 +108,6 @@ object EasybuildingClient : ClientModInitializer {
                 }
             }
 
-            // Left-Click يلغي التحديد الحالي بسهولة
             if (firstPoint != null && client.options.keyAttack.consumeClick()) {
                 if (player != null) {
                     cancelSelection()
@@ -275,19 +273,18 @@ object EasybuildingClient : ClientModInitializer {
         return Mirror.apply(list, m, c)
     }
 
-    // دعم اليد الثانية والشنطة
+    // فحص البلوكات بالطريقة العامة المتوافقة 100%
     private fun countItem(player: Player, item: BlockItem): Int {
         var total = 0
-        for (s in player.inventory.items) {
+        for (i in 0 until 36) {
+            val s = player.inventory.getItem(i)
             if (s.item == item) total += s.count
         }
-        for (s in player.inventory.offhand) {
-            if (s.item == item) total += s.count
-        }
+        val off = player.offhandItem
+        if (off.item == item) total += off.count
         return total
     }
 
-    // استثناء البلوكات التي تتقاطع مع جسم اللاعب من المعاينة
     private fun refreshPlaceable(client: Minecraft, player: Player) {
         val raw = rawPositions
         val level = client.level
@@ -298,13 +295,13 @@ object EasybuildingClient : ClientModInitializer {
         }
         val seen = HashSet<BlockPos>()
         val ok = ArrayList<BlockPos>()
-        val playerBox = player.boundingBox.deflate(1e-4)
+        val playerBox = player.boundingBox.inflate(-1e-4)
 
         for (p in raw) {
             if (!seen.add(p)) continue
             if (!level.hasChunkAt(p) || level.isOutsideBuildHeight(p)) continue
             if (!level.getBlockState(p).canBeReplaced()) continue
-            if (playerBox.intersects(AABB(p).deflate(1e-4))) continue
+            if (playerBox.intersects(AABB(p).inflate(-1e-4))) continue
             ok.add(p)
         }
         placeable = ok

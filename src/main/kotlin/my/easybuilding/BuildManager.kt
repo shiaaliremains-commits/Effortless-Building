@@ -55,31 +55,30 @@ object BuildManager {
     private fun tooFar(player: ServerPlayer, pos: BlockPos): Boolean =
         player.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) > MAX_RANGE * MAX_RANGE
 
-    // حساب البلوكات في اليد الثانية والشنطة الأساسية
+    // قراءة البلوكات بالدوال العامة (بدون استدعاء حقول private)
     private fun count(player: ServerPlayer, item: Item): Int {
         var total = 0
-        for (s in player.inventory.items) {
+        for (i in 0 until 36) {
+            val s = player.inventory.getItem(i)
             if (s.item == item) total += s.count
         }
-        for (s in player.inventory.offhand) {
-            if (s.item == item) total += s.count
-        }
+        val off = player.offhandItem
+        if (off.item == item) total += off.count
         return total
     }
 
-    // استهلاك البلوكات من اليد الثانية والشنطة
+    // استهلاك البلوكات بأمان
     private fun consume(player: ServerPlayer, item: Item, amount: Int) {
         var left = amount
-        for (s in player.inventory.offhand) {
-            if (left <= 0) break
-            if (s.item == item) {
-                val take = minOf(left, s.count)
-                s.shrink(take)
-                left -= take
-            }
+        val off = player.offhandItem
+        if (off.item == item) {
+            val take = minOf(left, off.count)
+            off.shrink(take)
+            left -= take
         }
-        for (s in player.inventory.items) {
+        for (i in 0 until 36) {
             if (left <= 0) break
+            val s = player.inventory.getItem(i)
             if (s.item == item) {
                 val take = minOf(left, s.count)
                 s.shrink(take)
@@ -88,26 +87,29 @@ object BuildManager {
         }
     }
 
-    // فحص البناء مع منع البناء داخل جسم اللاعب
+    // فحص البناء ومنع البناء داخل جسم اللاعب
     private fun canPlaceAt(level: ServerLevel, pos: BlockPos, player: ServerPlayer? = null): Boolean {
         if (!level.hasChunkAt(pos) || level.isOutsideBuildHeight(pos) || !level.getBlockState(pos).canBeReplaced()) {
             return false
         }
         if (player != null) {
-            val blockBox = AABB(pos).deflate(1e-4)
+            val blockBox = AABB(pos).inflate(-1e-4)
             if (player.boundingBox.intersects(blockBox)) return false
         }
         return true
     }
 
-    // تحديد اتجاه البلوكة الذكي (درج، خشب، سلاب، إلخ)
+    // تحديد اتجاه البلوكة الصحيح
     private fun getPlacementState(player: ServerPlayer, item: BlockItem, pos: BlockPos): BlockState {
         return runCatching {
-            val look = player.lookAngle
-            val dir = Direction.getNearest(look.x, look.y, look.z).opposite
+            val dir = when {
+                player.xRot > 45f -> Direction.UP
+                player.xRot < -45f -> Direction.DOWN
+                else -> player.direction.opposite
+            }
             val hit = BlockHitResult(Vec3.atCenterOf(pos), dir, pos, false)
             val ctx = BlockPlaceContext(player, InteractionHand.MAIN_HAND, player.mainHandItem, hit)
-            item.getPlacementState(ctx)
+            item.block.getStateForPlacement(ctx)
         }.getOrNull() ?: item.block.defaultBlockState()
     }
 
@@ -200,7 +202,7 @@ object BuildManager {
         }
 
         val skipped = positions.size - placed
-        if (placed == 0) say(player, false, "Nothing was built (spots are occupied, player inside, or no blocks)")
+        if (placed == 0) say(player, false, "Nothing was built (spots occupied, player inside, or no blocks)")
         else say(player, true, "Built $placed blocks" + if (skipped > 0) " ($skipped skipped)" else "")
     }
 
@@ -217,7 +219,6 @@ object BuildManager {
         for ((pos, oldState) in last.entries.asReversed()) {
             val currentState = level.getBlockState(pos)
             val expectedPlacedState = placedMap[pos]
-            // قفل ثغرة التدبيل: التراجع يتم فقط إذا كانت البلوكة لا تزال موجودة ولم تُكسر
             if (currentState == expectedPlacedState) {
                 if (level.setBlock(pos, oldState, 3)) {
                     restored++
