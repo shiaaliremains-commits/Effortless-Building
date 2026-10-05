@@ -28,4 +28,7 @@ object BuildState {
 
     @Volatile
     var mirrorCenter: BlockPos? = null
+
+    @Volatile
+    var autoDirection: Boolean = true
 }
