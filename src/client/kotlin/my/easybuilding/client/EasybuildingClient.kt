@@ -335,15 +335,17 @@ object EasybuildingClient : ClientModInitializer {
     private fun argb(alpha: Int, rgb: Int): Int = (alpha.coerceIn(0, 255) shl 24) or (rgb and 0xFFFFFF)
 
     private fun blockBox(p: BlockPos): AABB =
-        AABB(p.x.toDouble(), p.y.toDouble(), p.z.toDouble(), p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(0.003)
+        AABB(p.x.toDouble(), p.y.toDouble(), p.z.toDouble(), p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(0.002)
 
     private fun drawGroup(list: List<BlockPos>, fill: Int, line: Int) {
         if (list.isEmpty()) return
+        // مدة العرض 55ms فقط (تغطي مدة التيك الواحد تماماً بدون تراكم طبقات يسبب الرمشة)
+        val duration = 55
         if (list.size <= MAX_PER_BLOCK_PREVIEW) {
             for (p in list) {
                 val box = blockBox(p)
-                Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(100)
-                Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(100)
+                Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(duration)
+                Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(duration)
             }
         } else {
             var minX = Int.MAX_VALUE
@@ -357,35 +359,35 @@ object EasybuildingClient : ClientModInitializer {
                 maxX = maxOf(maxX, p.x); maxY = maxOf(maxY, p.y); maxZ = maxOf(maxZ, p.z)
             }
             val box = AABB(minX.toDouble(), minY.toDouble(), minZ.toDouble(), maxX + 1.0, maxY + 1.0, maxZ + 1.0)
-            Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(100)
-            Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(100)
+            Gizmos.cuboid(box, GizmoStyle.fill(fill)).persistForMillis(duration)
+            Gizmos.cuboid(box, GizmoStyle.stroke(line)).persistForMillis(duration)
         }
     }
 
     private fun drawPreview(first: BlockPos, target: BlockPos) {
-        // علامة البداية والهدف بشفافية هادئة
-        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(140, 0x44FF55))).persistForMillis(100)
-        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(140, 0xFFE24D))).persistForMillis(100)
+        // علامة البداية والهدف بمدة متطابقة وثابتة
+        Gizmos.cuboid(blockBox(first), GizmoStyle.stroke(argb(130, 0x44FF55))).persistForMillis(55)
+        Gizmos.cuboid(blockBox(target), GizmoStyle.stroke(argb(130, 0xFFE24D))).persistForMillis(55)
 
         if (tooBig) {
             val box = AABB(
                 minOf(first.x, target.x).toDouble(), minOf(first.y, target.y).toDouble(), minOf(first.z, target.z).toDouble(),
                 maxOf(first.x, target.x) + 1.0, maxOf(first.y, target.y) + 1.0, maxOf(first.z, target.z) + 1.0
             )
-            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(100)
-            Gizmos.cuboid(box, GizmoStyle.stroke(argb(120, 0xFF3030))).persistForMillis(100)
+            Gizmos.cuboid(box, GizmoStyle.fill(argb(40, 0xFF3030))).persistForMillis(55)
+            Gizmos.cuboid(box, GizmoStyle.stroke(argb(110, 0xFF3030))).persistForMillis(55)
             return
         }
 
         val white = placeable.subList(0, affordable.coerceIn(0, placeable.size))
         val missing = placeable.subList(white.size, placeable.size)
 
-        // أخضر أنيق، شفافية ثابتة ومريحة، وإطار ناعم متناسق
-        val greenFill = argb(45, 0x44FF55)
-        val greenLine = argb(90, 0x44FF55)
+        // شفافية متناسقة وهادئة وثابتة 100%
+        val greenFill = argb(45, 0x38EF7D)
+        val greenLine = argb(85, 0x38EF7D)
 
         drawGroup(white, greenFill, greenLine)
-        drawGroup(missing, argb(40, 0xFF3030), argb(90, 0xFF3030))
+        drawGroup(missing, argb(40, 0xFF3030), argb(85, 0xFF3030))
     }
 
     private fun drawMirrorPlane(client: Minecraft) {
@@ -398,19 +400,19 @@ object EasybuildingClient : ClientModInitializer {
         val y1 = Mth.floor(player.y) + 14.0
         val half = 24.0
         val fill = GizmoStyle.fill(argb(34, 0x00E5FF))
-        val line = GizmoStyle.stroke(argb(200, 0x00E5FF))
+        val line = GizmoStyle.stroke(argb(150, 0x00E5FF))
 
         if (m == MirrorMode.X || m == MirrorMode.BOTH) {
             val x = c.x + 0.5
             val box = AABB(x - 0.02, y0, c.z - half, x + 0.02, y1, c.z + half + 1.0)
-            Gizmos.cuboid(box, fill).persistForMillis(100)
-            Gizmos.cuboid(box, line).persistForMillis(100)
+            Gizmos.cuboid(box, fill).persistForMillis(55)
+            Gizmos.cuboid(box, line).persistForMillis(55)
         }
         if (m == MirrorMode.Z || m == MirrorMode.BOTH) {
             val z = c.z + 0.5
             val box = AABB(c.x - half, y0, z - 0.02, c.x + half + 1.0, y1, z + 0.02)
-            Gizmos.cuboid(box, fill).persistForMillis(100)
-            Gizmos.cuboid(box, line).persistForMillis(100)
+            Gizmos.cuboid(box, fill).persistForMillis(55)
+            Gizmos.cuboid(box, line).persistForMillis(55)
         }
     }
 
