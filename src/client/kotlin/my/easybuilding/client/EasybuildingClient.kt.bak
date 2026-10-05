@@ -43,7 +43,6 @@ object EasybuildingClient : ClientModInitializer {
     private var lastKey: String? = null
     private var cachedPositions: List<BlockPos>? = null
     private var cachedTarget: BlockPos? = null
-    private var screenProbe: ((Minecraft) -> Any?)? = null
 
     override fun onInitializeClient() {
         val category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "main"))
@@ -108,11 +107,6 @@ object EasybuildingClient : ClientModInitializer {
         ClientPlayNetworking.send(BuildPayload(BuildPayload.UNDO, 0, BlockPos.ZERO, BlockPos.ZERO, 0, BlockPos.ZERO))
     }
 
-    fun cancelSelection() {
-        firstPoint = null
-        resetPreview()
-    }
-
     private fun handleInteraction(player: Player, client: Minecraft, hit: BlockHitResult?) {
         val mode = BuildState.mode
         if (mode == BuildMode.NORMAL) return
@@ -159,31 +153,22 @@ object EasybuildingClient : ClientModInitializer {
         return BlockPos(Mth.floor(airPos.x), Mth.floor(airPos.y), Mth.floor(airPos.z))
     }
 
-    // يبني طريقة فحص الشاشة المفتوحة مرة وحدة (reflection) ويخزنها بدل البحث كل tick
-    private fun buildScreenProbe(mc: Minecraft): (Minecraft) -> Any? {
-        val guiField = runCatching { mc.javaClass.getField("gui") }.getOrNull()
-        val gui = guiField?.let { runCatching { it.get(mc) }.getOrNull() }
-        val guiMethod = gui?.javaClass?.methods?.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
-        if (guiField != null && guiMethod != null) {
-            return { m -> runCatching { guiMethod.invoke(guiField.get(m)) }.getOrNull() }
-        }
-
-        val mcMethod = mc.javaClass.methods.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
-        if (mcMethod != null) {
-            return { m -> runCatching { mcMethod.invoke(m) }.getOrNull() }
-        }
-
-        val mcField = runCatching { mc.javaClass.getField("screen") }.getOrNull()
-        if (mcField != null) {
-            return { m -> runCatching { mcField.get(m) }.getOrNull() }
-        }
-
-        return { _ -> null }
-    }
-
     private fun isScreenOpen(client: Minecraft): Boolean {
-        val probe = screenProbe ?: buildScreenProbe(client).also { screenProbe = it }
-        return probe(client) != null
+        val mc = client
+        val gui = runCatching { mc.javaClass.getField("gui").get(mc) }.getOrNull()
+        if (gui != null) {
+            val screenFromGui = runCatching {
+                val method = gui.javaClass.methods.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
+                method?.invoke(gui)
+            }.getOrNull()
+            if (screenFromGui != null) return true
+        }
+        val screenFromMc = runCatching {
+            val method = mc.javaClass.methods.firstOrNull { it.name == "screen" && it.parameterCount == 0 }
+            if (method != null) method.invoke(mc)
+            else mc.javaClass.getField("screen").get(mc)
+        }.getOrNull()
+        return screenFromMc != null
     }
 
     private fun chat(player: Player, text: String) {
