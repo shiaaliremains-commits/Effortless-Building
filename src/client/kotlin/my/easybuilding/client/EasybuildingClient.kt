@@ -83,7 +83,6 @@ object EasybuildingClient : ClientModInitializer {
                 if (client.player != null) openScreen(ModeMenuScreen())
             }
 
-            // فحص الضغط على Ctrl + Z بأمان تام بدون استخدام Screen.hasControlDown
             while (undoKey.consumeClick()) {
                 if (isCtrlDown() && client.player != null) {
                     sendUndo()
@@ -97,11 +96,10 @@ object EasybuildingClient : ClientModInitializer {
 
     private fun isCtrlDown(): Boolean {
         return runCatching {
-            val handle = Minecraft.getInstance().window.handle
-            InputConstants.isKeyDown(handle, 341) || // Left Ctrl
-            InputConstants.isKeyDown(handle, 345) || // Right Ctrl
-            InputConstants.isKeyDown(handle, 343) || // Mac Left Command
-            InputConstants.isKeyDown(handle, 347)    // Mac Right Command
+            InputConstants.isKeyDown(341) || // Left Ctrl
+            InputConstants.isKeyDown(345) || // Right Ctrl
+            InputConstants.isKeyDown(343) || // Mac Left Command
+            InputConstants.isKeyDown(347)    // Mac Right Command
         }.getOrDefault(false)
     }
 
