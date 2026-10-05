@@ -1,22 +1,15 @@
 package my.easybuilding
 
 import net.fabricmc.api.ModInitializer
-import net.minecraft.resources.Identifier
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 object Easybuilding : ModInitializer {
-	const val MOD_ID: String = "easybuilding"
+    const val MOD_ID = "easybuilding"
+    val LOGGER: Logger = LoggerFactory.getLogger(MOD_ID)
 
-	private val LOGGER = LoggerFactory.getLogger(MOD_ID)
-
-	override fun onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
-		LOGGER.info("Hello Fabric world!")
-	}
-
-	fun id(path: String): Identifier
-		= Identifier.fromNamespaceAndPath(MOD_ID, path)
+    override fun onInitialize() {
+        BuildManager.init()
+        LOGGER.info("Easy Building loaded.")
+    }
 }
