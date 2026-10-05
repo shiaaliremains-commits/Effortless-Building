@@ -3,7 +3,6 @@ package my.easybuilding.client
 import my.easybuilding.BuildMode
 import my.easybuilding.BuildState
 import my.easybuilding.MirrorMode
-import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
@@ -16,7 +15,7 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building Settings")) {
         val centerX = width / 2 - btnWidth / 2
         var y = height / 4
 
-        // 1. زر تبديل وضع البناء
+        // 1. زر وضع البناء
         addRenderableWidget(
             Button.builder(Component.literal("Mode: ${BuildState.mode.label}")) { btn ->
                 val modes = BuildMode.entries
@@ -48,7 +47,7 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building Settings")) {
         )
         y += 24
 
-        // 4. زر مسح مركز المرآة
+        // 4. زر تصفير مركز المرآة
         addRenderableWidget(
             Button.builder(Component.literal("Reset Mirror Center")) {
                 BuildState.mirrorCenter = null
@@ -56,17 +55,12 @@ class ModeMenuScreen : Screen(Component.literal("Easy Building Settings")) {
         )
         y += 28
 
-        // زر إغلاق القائمة
+        // 5. زر الإغلاق
         addRenderableWidget(
             Button.builder(Component.literal("Done")) {
                 onClose()
             }.bounds(centerX, y, btnWidth, btnHeight).build()
         )
-    }
-
-    override fun render(guiGraphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
-        super.render(guiGraphics, mouseX, mouseY, partialTick)
-        guiGraphics.drawCenteredString(font, title, width / 2, height / 4 - 24, 0x55FFFF)
     }
 
     override fun isPauseScreen(): Boolean = false
