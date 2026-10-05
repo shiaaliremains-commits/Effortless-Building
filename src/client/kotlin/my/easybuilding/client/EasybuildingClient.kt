@@ -193,6 +193,11 @@ object EasybuildingClient : ClientModInitializer {
     }
 
     private fun resolveTarget(player: Player, client: Minecraft, first: BlockPos, mode: BuildMode): BlockPos {
+        // إذا الميزة شغالة، يحدث المحور لحظياً حسب وين وجهتك
+        if (BuildState.autoDirection) {
+            lockAxes(player)
+        }
+
         val fallback = cachedTarget ?: first
         return when (mode) {
             BuildMode.FLOOR -> planeTarget(player, first, 1) ?: fallback
